@@ -1,78 +1,120 @@
-# 🌸 温泉宠物镇 — 弱PVP孵蛋网页小游戏
+# 🌸 温泉宠物镇 PetSpaPVP
 
-> 简约可爱像素风 · 5色低饱和调色板 · 实时多人 WebSocket · 纯 Node.js 零原生依赖
-
----
-
-## 🎮 玩法简介
-
-- **孵蛋**：花费金币放入蛋池，等待计时完成自动孵出随机宠物（普通/稀有/传说）
-- **守卫**：把宠物派为守卫站岗，提升防御/速度抵挡入侵者
-- **陷阱**：放置泥坑/荆棘/睡眠陷阱，大幅降低偷窃成功率
-- **偷窃**：访问他人蛋池，选择三种策略之一：
-  - ⚔️ **强闯**（Charge）：拼攻击力，失败扣 30 金币
-  - 🌙 **潜行**（Sneak）：拼速度，可绕过所有陷阱，失败扣 10 金币
-  - 💰 **贿赂**（Bribe）：消耗金币，成功率高达 85%
-- **每日任务**：签到/孵化/偷窃/防御，完成获得奖励
-- **排行榜**：金币总量实时榜单
+一个浏览器多人弱PVP孵蛋小游戏，基于 Node.js + WebSocket 实现，无需数据库，纯 JSON 文件存储。
 
 ---
 
-## 🎨 视觉设计
+## 📦 技术栈
 
-| 色号 | 用途 |
-|------|------|
-| `#F5ECD7` | 背景/暖米白 |
-| `#8BB5C8` | 水蓝/守卫主色 |
-| `#E8A87C` | 橙色/蛋/稀有高亮 |
-| `#7DAF8C` | 绿色/宠物/自然元素 |
-| `#5C4A6B` | 深紫/边框/文字 |
-
-所有宠物、蛋、陷阱图形均通过 Canvas 程序化绘制，严格遵守 5 色限制。
+- **后端**：Node.js + Express + ws（WebSocket）
+- **前端**：原生 HTML / CSS / JavaScript（无框架）
+- **存储**：纯 JSON 文件（`data/` 目录）
 
 ---
 
-## 🚀 快速启动
-
-### 环境要求
-- [Node.js](https://nodejs.org/) v16+（**无需** Python / Visual Studio Build Tools）
-
-### 步骤
+## 🚀 本地运行
 
 ```bash
-# 1. 进入项目目录
-cd pvp-pet-spa
-
-# 2. 安装依赖（仅 express / ws / uuid，无原生模块）
 npm install
-
-# 3. 启动服务器
 npm start
+# 浏览器打开 http://localhost:3000
 ```
 
-打开浏览器访问 → **http://localhost:3000**
+---
+
+## � 外网部署教程
+
+### 方式一：Railway（推荐，国内可访问）
+
+Railway 提供每月 $5 免费额度，部署后会得到一个 `*.up.railway.app` 公网地址。
+
+**步骤：**
+
+1. 注册 [Railway](https://railway.app/) 账号（可用 GitHub 登录）
+2. 将本项目推送到 GitHub 仓库：
+   ```bash
+   git init
+   git add .
+   git commit -m "init"
+   git remote add origin https://github.com/你的用户名/PetSpaPVP.git
+   git push -u origin main
+   ```
+3. 在 Railway 控制台点击 **New Project → Deploy from GitHub Repo**
+4. 选择你的仓库，Railway 会自动检测 `railway.json` 配置并部署
+5. 部署完成后，点击项目 → **Settings → Networking → Generate Domain**
+6. 得到公网 URL，例如：`https://petspapvp-production.up.railway.app`
+
+> ⚠️ **注意**：Railway 是无状态容器，每次重新部署数据会重置。如需持久化数据，可在 Railway 控制台添加 **Volume（挂载卷）**，挂载路径设为 `/app/data`。
+
+---
+
+### 方式二：Render.com（免费，但有冷启动）
+
+Render 免费版实例15分钟不活跃会休眠，第一次访问会有约30秒冷启动延迟。
+
+**步骤：**
+
+1. 注册 [Render](https://render.com/) 账号（可用 GitHub 登录）
+2. 将本项目推送到 GitHub 仓库（同上）
+3. 在 Render 控制台点击 **New → Web Service**
+4. 连接 GitHub 仓库
+5. Render 会自动检测 `render.yaml` 配置：
+   - Build Command: `npm install`
+   - Start Command: `node server/index.js`
+6. 点击 **Create Web Service**，等待约2分钟部署完成
+7. 得到公网 URL，例如：`https://pet-spa-pvp.onrender.com`
+
+> ⚠️ **注意**：Render 免费实例文件系统是临时的，重启/重新部署后数据会丢失。如需持久化，升级到 Starter 计划并启用 `render.yaml` 中注释的 Disk 配置。
+
+---
+
+### 方式三：Glitch.com（最简单，无需 GitHub）
+
+Glitch 完全免费，可直接在线编辑代码，适合快速试玩。
+
+**步骤：**
+
+1. 打开 [Glitch](https://glitch.com/) 并登录
+2. 点击 **New Project → Import from GitHub**
+3. 输入 GitHub 仓库地址
+4. Glitch 会自动运行，得到 `https://项目名.glitch.me` 的公网地址
+
+> ⚠️ **注意**：Glitch 免费版每5分钟不活跃会休眠，项目每天运行时长有限制（约1000小时/月）。
+
+---
+
+## 🎮 游戏玩法
+
+| 功能 | 说明 |
+|------|------|
+| 注册/登录 | 创建账号进入游戏 |
+| 放置蛋 | 消耗10金币，随机获得普通/稀有/传说蛋 |
+| 孵化宠物 | 等待倒计时结束（2~10分钟）自动孵化 |
+| 设置守卫 | 派宠物守护蛋，提高防守能力 |
+| 放置陷阱 | 消耗15~35金币设置陷阱，惩罚偷蛋者 |
+| 偷蛋 | 选择强攻/潜行/贿赂策略偷取他人的蛋 |
+| 每日签到 | 每天签到获得20金币 |
+| 每日任务 | 完成偷窃/防御/孵化/签到任务获得奖励 |
+| 邻居系统 | 添加邻居快速查看并偷取其蛋 |
+| 排行榜 | 查看全服金币排名 |
 
 ---
 
 ## 📁 项目结构
 
 ```
-pvp-pet-spa/
+PetSpaPVP/
+├── public/          # 前端静态文件
+│   ├── index.html
+│   ├── game.js
+│   ├── render.js
+│   └── style.css
 ├── server/
-│   ├── index.js      # Express + WebSocket 服务器 + 游戏逻辑路由
-│   └── db.js         # 纯 JSON 文件存储层（data/*.json）
-├── public/
-│   ├── index.html    # 单页应用 HTML 骨架
-│   ├── style.css     # 像素风 UI 样式
-│   ├── game.js       # 客户端 WebSocket 控制器
-│   └── render.js     # Canvas 程序化像素图形渲染引擎
-├── data/             # 运行时自动生成，存放 JSON 数据文件
-│   ├── players.json
-│   ├── eggs.json
-│   ├── pets.json
-│   ├── traps.json
-│   ├── steal_log.json
-│   └── daily_tasks.json
+│   ├── index.js     # Express + WebSocket 服务器
+│   └── db.js        # JSON 文件数据层
+├── data/            # 运行时数据（自动创建）
+├── railway.json     # Railway 部署配置
+├── render.yaml      # Render 部署配置
 └── package.json
 ```
 
