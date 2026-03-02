@@ -147,9 +147,119 @@ body {
 }
 
 /* ============================================================
-   LAYOUT
+   LAYOUT — 三栏布局
    ============================================================ */
-#app { width: 100%; max-width: 900px; margin: 0 auto; padding: 12px; }
+
+/* 三栏容器 */
+#three-col {
+  display: grid;
+  grid-template-columns: 240px 1fr 200px;
+  gap: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px;
+  min-height: calc(100vh - 80px);
+}
+
+/* 左栏：温泉 + 蛋池 + 守卫（常驻） */
+#col-left {
+  background: var(--panel);
+  border: 3px solid var(--dark);
+  box-shadow: 3px 3px 0 var(--dark);
+  padding: 14px;
+  position: sticky;
+  top: 80px;
+  height: fit-content;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+/* 中栏：主内容 */
+#col-main {
+  background: var(--panel);
+  border: 3px solid var(--dark);
+  box-shadow: 3px 3px 0 var(--dark);
+  padding: 14px;
+  min-height: 400px;
+}
+
+/* 右栏：社交 + 热门玩家 */
+#col-right {
+  background: var(--panel);
+  border: 3px solid var(--dark);
+  box-shadow: 3px 3px 0 var(--dark);
+  padding: 14px;
+  position: sticky;
+  top: 80px;
+  height: fit-content;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+/* 左栏温泉场景缩小 */
+#col-left .spa-scene {
+  height: 70px;
+  margin-bottom: 14px;
+}
+
+/* 左栏段落标题 */
+.sidebar-section-title {
+  font-size: 8px;
+  color: var(--dark);
+  background: var(--water);
+  padding: 3px 8px;
+  border: 2px solid var(--dark);
+  box-shadow: 2px 2px 0 var(--dark);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-section-title.guard-title {
+  background: var(--purple);
+  color: #fff;
+}
+.slot-info {
+  font-size: 6px;
+  opacity: 0.8;
+  background: rgba(255,255,255,0.2);
+  padding: 1px 4px;
+  border: 1px solid rgba(0,0,0,0.2);
+}
+
+/* 右栏段落标题 */
+.right-section-title {
+  font-size: 7px;
+  color: var(--dark);
+  background: var(--orange);
+  padding: 2px 6px;
+  border: 2px solid var(--dark);
+  box-shadow: 1px 1px 0 var(--dark);
+  margin-bottom: 6px;
+}
+
+/* 响应式：较小屏幕切换为单栏 */
+@media (max-width: 900px) {
+  #three-col {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  #col-left, #col-right {
+    position: static;
+    height: auto;
+    max-height: none;
+  }
+  #col-left .spa-scene {
+    height: 90px;
+  }
+}
+
+/* 登录页的温泉场景 */
+.login-spa {
+  width: 260px;
+  height: 60px;
+  margin-bottom: 14px;
+}
 
 /* ── 顶栏 ── */
 #topbar {
@@ -1291,6 +1401,172 @@ canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
   align-items: center;
   gap: 3px;
   min-width: 72px;
+}
+
+/* ============================================================
+   子导航（社交面板内的邻居/偷袭切换）
+   ============================================================ */
+.sub-nav {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--dark);
+}
+.sub-nav-btn {
+  flex: 1;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 8px;
+  background: var(--bg);
+  border: none;
+  border-right: 1px solid var(--dark);
+  border-top: 2px solid var(--dark);
+  cursor: pointer;
+  color: var(--dark);
+  transition: background 0.1s;
+}
+.sub-nav-btn:last-child { border-right: none; }
+.sub-nav-btn:hover, .sub-nav-btn.active {
+  background: var(--water);
+  color: var(--dark);
+}
+
+/* 子面板 */
+.sub-panel {
+  display: none;
+  animation: fadeIn 0.15s ease;
+}
+.sub-panel.active { display: block; }
+
+/* 子段落标签 */
+.sub-section-label {
+  font-size: 8px;
+  color: var(--dark);
+  background: rgba(74,54,96,0.1);
+  padding: 2px 6px;
+  border: 1px solid var(--dark);
+  margin: 8px 0 6px 0;
+  display: inline-block;
+}
+
+/* ============================================================
+   右栏样式
+   ============================================================ */
+
+/* 热门玩家列表 */
+#hot-players-list {
+  margin-bottom: 12px;
+}
+.hot-player-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  background: var(--bg);
+  border: 1px solid var(--dark);
+  font-size: 7px;
+  margin-bottom: 3px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.hot-player-card:hover { background: var(--steam); }
+.hot-player-info { flex: 1; }
+.hot-player-rank {
+  font-size: 6px;
+  color: var(--purple);
+  min-width: 16px;
+  text-align: center;
+}
+
+/* 快捷操作 */
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.quick-actions button {
+  width: 100%;
+  font-family: inherit;
+  font-size: 8px;
+  padding: 6px 8px;
+  border: 2px solid var(--dark);
+  box-shadow: 2px 2px 0 var(--dark);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.quick-actions .water-btn { background: var(--water); color: var(--dark); }
+.quick-actions .danger-btn { background: var(--danger); color: #fff; }
+
+/* 消息通知 */
+#notification-feed {
+  max-height: 120px;
+  overflow-y: auto;
+}
+.notification-item {
+  padding: 4px 6px;
+  background: rgba(126,200,216,0.1);
+  border: 1px solid var(--water);
+  font-size: 7px;
+  margin-bottom: 3px;
+  line-height: 1.6;
+}
+
+/* 通用：空状态提示 */
+.empty-hint {
+  font-size: 8px;
+  color: var(--dark);
+  opacity: 0.6;
+  padding: 8px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* 访问操作按钮组 */
+.visit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* 表单标签 */
+.form-label {
+  font-size: 10px;
+  text-align: center;
+  color: var(--dark);
+  margin-bottom: 4px;
+}
+
+/* 商店子标题 */
+.shop-sub-title {
+  font-size: 9px;
+  color: var(--dark);
+  margin: 14px 0 10px;
+  border-bottom: 2px solid var(--dark);
+  padding-bottom: 6px;
+}
+
+/* ============================================================
+   左栏蛋池/守卫槽调整
+   ============================================================ */
+#col-left #egg-pool {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+#col-left .egg-slot {
+  width: 100px;
+  min-height: 120px;
+  padding: 8px 4px 6px;
+}
+#col-left .guard-slots {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+#col-left .guard-slot {
+  width: 80px;
+  min-height: 90px;
+  padding: 6px 3px 4px;
 }
 
 /* ============================================================

@@ -95,9 +95,18 @@ function switchTab(tabId) {
     b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.panel').forEach(p =>
     p.classList.toggle('active', p.id === tabId));
-  if (tabId === 'tab-rank')      send('GET_LEADERBOARD');
-  if (tabId === 'tab-neighbors') send('GET_NEIGHBORS');
-  if (tabId === 'tab-home')      renderMyScene();
+  if (tabId === 'tab-rank')   send('GET_LEADERBOARD');
+  if (tabId === 'tab-social') { send('GET_NEIGHBORS'); send('GET_HOT_PLAYERS'); }
+}
+
+// ── 子导航切换（社交面板内） ──
+function switchSubTab(subId) {
+  document.querySelectorAll('.sub-nav-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.sub === subId));
+  document.querySelectorAll('.sub-panel').forEach(p =>
+    p.classList.toggle('active', p.id === subId));
+  if (subId === 'sub-neighbors') send('GET_NEIGHBORS');
+  if (subId === 'sub-raid') send('GET_HOT_PLAYERS');
 }
 
 // ── 升级检测 ──
@@ -557,10 +566,34 @@ function renderNeighborList(list) {
   });
 }
 
-window.sendFriendReq = (id) => { send('SEND_FRIEND_REQ', { toId: id }); showInfo('好友申请已发送，等待对方同意'); };
-window.visitPlayer   = (id) => { send('VIEW_PLAYER', { targetId: id }); switchTab('tab-raid'); };
+window.sendFriendReq = (id) => { send('SEND_FRIEND_REQ', { targetId: id }); showInfo('好友申请已发送，等待对方同意'); };
+window.visitPlayer   = (id) => { send('VIEW_PLAYER', { targetId: id }); switchTab('tab-social'); switchSubTab('sub-raid'); };
 window.boostNeighbor = (id) => { send('BOOST_EGG', { targetId: id }); };
 window.removeNeighbor= (id) => { send('REMOVE_NEIGHBOR', { targetId: id }); setTimeout(() => send('GET_NEIGHBORS'), 300); };
+
+// ── 热门玩家列表 ──
+function renderHotPlayersList(list) {
+  const container = document.getElementById('hot-players-list');
+  if (!container) return;
+  if (!list || list.length === 0) {
+    container.innerHTML = '<div class="empty-hint">暂无热门玩家</div>';
+    return;
+  }
+  container.innerHTML = '';
+  list.slice(0, 10).forEach((player, i) => {
+    const card = document.createElement('div');
+    card.className = 'hot-player-card';
+    card.innerHTML = `
+      <div class="hot-player-rank">#${i + 1}</div>
+      <div class="hot-player-info">
+        <div style="font-size:8px;">${player.username}</div>
+        <div style="font-size:6px;opacity:0.7;">Lv.${player.level} · 🪙${player.coins}</div>
+      </div>
+    `;
+    card.addEventListener('click', () => visitPlayer(player.id));
+    container.appendChild(card);
+  });
+}
 
 // ── 偷袭面板 ──
 document.getElementById('btn-raid-search').addEventListener('click', () => {
@@ -773,6 +806,11 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
+// ── 子导航绑定（社交面板内） ──
+document.querySelectorAll('.sub-nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchSubTab(btn.dataset.sub));
+});
+
 // ── 服务端消息路由 ──
 function handleServerMsg(type, payload) {
   switch (type) {
@@ -864,6 +902,15 @@ function handleServerMsg(type, payload) {
       break;
     case 'LEADERBOARD':
       renderLeaderboard(payload.list);
+      break;
+    case 'HOT_PLAYERS':
+      renderHotPlayersList(payload.list);
+      break;
+    case 'EGG_PURCHASED':
+      checkLevelUp(payload.state);
+      state = payload.state;
+      renderMyScene();
+      showSuccess(`🛒 购买成功！${rarityLabel(payload.egg.rarity)}蛋已放入孵化池`);
       break;
     case 'ERROR':
       showError(payload.msg || payload.code || '操作失败');

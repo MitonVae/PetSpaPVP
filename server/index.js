@@ -271,13 +271,22 @@ wss.on('connection', (ws) => {
 
     // ── 搜索玩家 ──
     if (type === 'SEARCH_PLAYER') {
-      const { username } = payload;
+      const { username, context } = payload;
       const target = getPlayerByName(username);
-      if (!target) return send(ws, 'ERROR', { code: 'PLAYER_NOT_FOUND', msg: '找不到该玩家' });
+      if (!target) return send(ws, 'ERROR', { code: 'PLAYER_NOT_FOUND', msg: '找不到该玩家', context: context || 'social' });
+      if (target.id === currentPlayerId) return send(ws, 'ERROR', { code: 'SEARCH_SELF', msg: '不能搜索自己', context: context || 'social' });
       send(ws, 'SEARCH_RESULT', {
         id: target.id, username: target.username,
         level: target.level, coins: target.coins,
+        context: context || 'social',
       });
+      return;
+    }
+
+    // ── 全服热门玩家（按金币排序取前10） ──
+    if (type === 'GET_HOT_PLAYERS') {
+      const list = getLeaderboard(10);
+      send(ws, 'HOT_PLAYERS', { list });
       return;
     }
 
@@ -319,8 +328,9 @@ wss.on('connection', (ws) => {
 
     // ── 同意邻居申请 ──
     if (type === 'ACCEPT_FRIEND') {
-      const { requestId } = payload;
-      const result = acceptFriendRequest(requestId, currentPlayerId);
+      const { requestId, fromId } = payload;
+      // 兼容两种传参方式
+      const result = acceptFriendRequest(requestId || fromId, currentPlayerId);
       if (result.error) return send(ws, 'ERROR', { code: result.error, msg: '申请不存在或已处理' });
       send(ws, 'FRIEND_ACCEPTED', { neighbor: result.from, state: buildPlayerState(currentPlayerId) });
       // 通知申请方
@@ -333,8 +343,8 @@ wss.on('connection', (ws) => {
 
     // ── 拒绝邻居申请 ──
     if (type === 'REJECT_FRIEND') {
-      const { requestId } = payload;
-      const result = rejectFriendRequest(requestId, currentPlayerId);
+      const { requestId, fromId } = payload;
+      const result = rejectFriendRequest(requestId || fromId, currentPlayerId);
       if (result.error) return send(ws, 'ERROR', { code: result.error });
       send(ws, 'STATE_UPDATE', buildPlayerState(currentPlayerId));
       return;
