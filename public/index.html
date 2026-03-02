@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🌸 温泉宠物镇</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============================================================
+     登录/注册界面
+     ============================================================ -->
+<div id="login-screen">
+  <div class="login-logo">
+    🌸 <span>温泉宠物镇</span> 🌸<br>
+    <span style="font-size:8px;color:var(--dark);">SPA PET TOWN</span>
+  </div>
+  <div class="login-sub">孵蛋·养宠·偷蛋 · 弱PVP像素小游戏</div>
+
+  <div class="login-box">
+    <div id="login-title" style="font-size:10px;text-align:center;">登录</div>
+    <input id="login-username" type="text" placeholder="用户名" maxlength="16" autocomplete="off" />
+    <input id="login-password" type="password" placeholder="密码" maxlength="32" />
+    <div class="err-msg" id="login-err"></div>
+    <button class="btn" id="login-submit">🌸 进入游戏</button>
+    <div class="login-switch" id="login-switch">还没有账号？点此注册</div>
+  </div>
+
+  <!-- 温泉像素背景条 -->
+  <canvas id="spa-login-bg" style="margin-top:20px;border:2px solid var(--dark);"></canvas>
+  <script>
+    window.addEventListener('load', () => {
+      if (window.PixelRender) PixelRender.drawSpaBackground(document.getElementById('spa-login-bg'));
+    });
+  </script>
+</div>
+
+<!-- ============================================================
+     游戏主界面（登录后显示）
+     ============================================================ -->
+<div id="game-screen" style="display:none;">
+
+  <!-- 顶栏 -->
+  <div id="topbar">
+    <div class="logo">🌸 温泉宠物镇</div>
+    <div class="player-info">
+      <span id="tb-name">-</span>
+      <span id="tb-level">Lv.1</span>
+      <span class="coins" id="tb-coins">🪙 100</span>
+      <div class="exp-bar-wrap" title="经验值">
+        <div class="exp-bar-label" id="tb-exp-label">EXP 0/100</div>
+        <div class="exp-bar-track">
+          <div class="exp-bar-fill" id="tb-exp-fill" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app">
+    <!-- 温泉背景条 -->
+    <canvas id="spa-bg-canvas" style="width:100%;max-width:880px;border-bottom:2px solid var(--dark);margin-bottom:10px;display:block;"></canvas>
+
+    <!-- Tab 导航 -->
+    <div id="nav">
+      <button class="nav-btn active" data-tab="my">🥚 蛋池</button>
+      <button class="nav-btn" data-tab="pets">🐾 宠物</button>
+      <button class="nav-btn" data-tab="steal">🎯 偷蛋</button>
+      <button class="nav-btn" data-tab="neighbors">🏘️ 邻居</button>
+      <button class="nav-btn" data-tab="tasks">📋 任务</button>
+      <button class="nav-btn" data-tab="leaderboard">🏆 排行</button>
+    </div>
+
+    <!-- ════════════════════════════════
+         面板1: 我的蛋池
+         ════════════════════════════════ -->
+    <div class="panel active" data-panel="my">
+
+      <!-- 蛋池区 -->
+      <div class="section-title">🥚 温泉蛋池</div>
+      <div style="font-size:7px;opacity:0.7;margin-bottom:10px;">点击空槽放蛋（花费 10 🪙）· 点击孵好的蛋收取宠物</div>
+      <div id="egg-pool"></div>
+
+      <!-- 守卫/陷阱区 -->
+      <div class="section-title">🛡️ 守卫与陷阱</div>
+      <div style="font-size:7px;opacity:0.7;margin-bottom:8px;">守卫宠物会拦截偷窃者 · 陷阱可降低偷窃成功率</div>
+      <div class="guard-slots" id="guard-slots"></div>
+
+      <!-- 陷阱商店 -->
+      <div style="font-size:8px;margin-bottom:8px;color:var(--dark);">购买陷阱：</div>
+      <div class="trap-shop">
+        <div class="trap-item" data-trap-type="mud">
+          <canvas class="trap-canvas" data-trap-render="mud"></canvas>
+          <div>🟤 泥潭</div>
+          <div class="trap-cost">15 🪙</div>
+          <div class="trap-desc">降低偷窃成功率 -20%</div>
+        </div>
+        <div class="trap-item" data-trap-type="thorn">
+          <canvas class="trap-canvas" data-trap-render="thorn"></canvas>
+          <div>🌵 荆棘</div>
+          <div class="trap-cost">25 🪙</div>
+          <div class="trap-desc">成功率-30% 并扣偷者金币</div>
+        </div>
+        <div class="trap-item" data-trap-type="sleep">
+          <canvas class="trap-canvas" data-trap-render="sleep"></canvas>
+          <div>💤 睡眠香</div>
+          <div class="trap-cost">35 🪙</div>
+          <div class="trap-desc">成功率 -45%（最强陷阱）</div>
+        </div>
+      </div>
+
+      <!-- 签到 -->
+      <div style="margin-top:14px;">
+        <button class="btn secondary small" id="signin-btn">🌅 每日签到（+20🪙）</button>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         面板2: 我的宠物
+         ════════════════════════════════ -->
+    <div class="panel" data-panel="pets">
+      <div class="section-title">🐾 宠物图鉴</div>
+      <div style="font-size:7px;opacity:0.7;margin-bottom:10px;">
+        点击宠物卡片 → 设为守卫/撤回 · 守卫属性越强防御越好
+      </div>
+      <div id="pet-list"></div>
+
+      <div style="margin-top:14px;font-size:7px;opacity:0.6;border-top:2px solid var(--dark);padding-top:10px;">
+        稀有度: 普通(绿) · 稀有(蓝) · 传说(橙) · 传说孵化触发全服广播！
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         面板3: 去偷蛋
+         ════════════════════════════════ -->
+    <div class="panel" data-panel="steal">
+      <div class="section-title">🎯 偷蛋行动</div>
+
+      <!-- 搜索玩家 -->
+      <div style="font-size:8px;margin-bottom:8px;">搜索玩家：</div>
+      <div class="search-bar">
+        <input id="search-input" type="text" placeholder="输入玩家名..." maxlength="16" />
+        <button class="btn small" id="search-btn">搜索</button>
+      </div>
+      <div id="search-result" style="margin-bottom:12px;"></div>
+
+      <!-- 访问视图 -->
+      <div id="visit-view" style="display:none;">
+        <div class="visit-header">
+          <div>
+            <div id="visit-target-name" class="target-info"></div>
+            <div id="visit-target-coins" style="font-size:7px;opacity:0.7;margin-top:2px;"></div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn small green" id="visit-add-neighbor-btn">➕ 加邻居</button>
+            <button class="btn small secondary" onclick="document.getElementById('visit-view').style.display='none';">关闭</button>
+          </div>
+        </div>
+
+        <!-- 守卫与陷阱信息 -->
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;font-size:7px;">
+          <div>守卫：<span id="visit-guards" style="display:inline-flex;gap:4px;align-items:center;"></span></div>
+          <div id="visit-traps" style="color:var(--orange);"></div>
+        </div>
+
+        <!-- 蛋列表 -->
+        <div style="font-size:8px;margin-bottom:6px;">可偷的蛋（点击选择目标）：</div>
+        <div id="visit-target-eggs" class="target-eggs"></div>
+
+        <!-- 策略选择面板（含实时成功率） -->
+        <div id="strategy-panel">
+          <div class="strategy-title">🎲 选择偷窃策略：</div>
+          <div class="strategy-opts">
+            <button class="strategy-btn" data-strategy="charge">
+              <span class="s-icon">⚔️</span>
+              强闯
+              <div class="s-rate" id="rate-charge">--%</div>
+              <div class="s-desc">ATK vs DEF<br>失败扣30🪙</div>
+            </button>
+            <button class="strategy-btn" data-strategy="sneak">
+              <span class="s-icon">🌀</span>
+              绕路
+              <div class="s-rate" id="rate-sneak">--%</div>
+              <div class="s-desc">SPD对决·绕陷阱<br>失败扣10🪙</div>
+            </button>
+            <button class="strategy-btn" data-strategy="bribe">
+              <span class="s-icon">🍖</span>
+              贿赂
+              <div class="s-rate" id="rate-bribe">85%</div>
+              <div class="s-desc">固定高成功率<br>需花费金币</div>
+            </button>
+          </div>
+          <!-- 出击宠物选择 -->
+          <div style="font-size:7px;margin-bottom:4px;opacity:0.8;">选择出击宠物（可影响成功率）：</div>
+          <div id="attacker-pet-select" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+          <!-- 偷窃预估 -->
+          <div id="steal-preview" class="steal-preview" style="display:none;"></div>
+          <button class="btn" id="confirm-steal" style="width:auto;">🎯 发动偷窃！</button>
+        </div>
+      </div>
+
+      <!-- 提示 -->
+      <div style="margin-top:16px;font-size:7px;opacity:0.6;border-top:2px solid var(--dark);padding-top:10px;line-height:2;">
+        💡 偷窃规则：<br>
+        • 蛋孵化进度越高，偷到后获得金币越多<br>
+        • 强闯：成功率受 ATK/DEF 影响，失败扣 30🪙<br>
+        • 绕路：SPD对决，避开守卫，失败只扣 10🪙<br>
+        • 贿赂：85%成功率但需消耗金币<br>
+        • 陷阱会额外降低偷窃成功率（绕路可躲避）<br>
+        • 守卫宠物每次防御成功可获得经验值
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         面板4: 邻居
+         ════════════════════════════════ -->
+    <div class="panel" data-panel="neighbors">
+      <div class="section-title">🏘️ 邻居列表</div>
+      <div style="font-size:7px;opacity:0.7;margin-bottom:12px;">
+        在偷蛋面板找到玩家后可快速添加为邻居，方便下次偷蛋 🎯
+      </div>
+
+      <div id="neighbor-list" class="neighbor-list">
+        <div style="font-size:8px;opacity:0.5;text-align:center;padding:20px;">
+          还没有邻居！去偷蛋页面搜索玩家后添加邻居 ~
+        </div>
+      </div>
+
+      <div style="margin-top:14px;border-top:2px solid var(--dark);padding-top:12px;">
+        <div class="section-title">🔥 全服热榜快速添加</div>
+        <div style="font-size:7px;opacity:0.7;margin-bottom:8px;">从排行榜快速添加偷窃目标为邻居</div>
+        <div id="hot-neighbor-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        <button class="btn secondary small" style="margin-top:8px;" id="refresh-hot-btn">🔄 刷新热榜</button>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         面板5: 每日任务
+         ════════════════════════════════ -->
+    <div class="panel" data-panel="tasks">
+      <div class="section-title">📋 每日任务</div>
+      <div style="font-size:7px;opacity:0.7;margin-bottom:12px;">每天零点刷新 · 完成可获得金币和经验</div>
+      <div class="task-list" id="task-list-container"></div>
+
+      <div style="margin-top:16px;border-top:2px solid var(--dark);padding-top:12px;">
+        <div class="section-title">🎖️ 成长说明</div>
+        <div style="font-size:7px;line-height:2.2;margin-top:8px;">
+          Lv.1 → 最多 2 个蛋池槽位<br>
+          Lv.3 → 解锁第 3 个蛋池槽位<br>
+          Lv.5 → 解锁第 4 个蛋池槽位<br>
+          Lv.10 → 解锁第 5 个蛋池槽位（上限）<br>
+          <br>
+          升级途径：孵蛋·偷窃·完成每日任务<br>
+          宠物参与战斗后也会获得经验升级
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         面板6: 排行榜
+         ════════════════════════════════ -->
+    <div class="panel" data-panel="leaderboard">
+      <div class="section-title">🏆 全服排行榜</div>
+      <div style="font-size:7px;opacity:0.7;margin-bottom:10px;">按金币排名 · 点击「偷蛋」直接前往 · 点击「加邻居」收藏目标</div>
+      <table id="leaderboard-list">
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th>玩家</th>
+            <th>等级</th>
+            <th>金币</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-body">
+          <tr><td colspan="5" style="text-align:center;opacity:0.5;">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /#app -->
+</div><!-- /#game-screen -->
+
+<!-- ============================================================
+     结果弹窗（偷窃/升级/孵化）
+     ============================================================ -->
+<div id="result-modal">
+  <div class="modal-box">
+    <div class="modal-title success" id="modal-title">结果</div>
+    <canvas id="modal-pet-canvas" style="display:none;margin:8px auto;display:none;"></canvas>
+    <div class="modal-desc" id="modal-desc"></div>
+    <button class="modal-close" id="modal-close">确认</button>
+  </div>
+</div>
+
+<!-- 宠物管理弹窗 -->
+<div id="pet-action-modal">
+  <div class="modal-box" style="max-width:260px;">
+    <div class="modal-title" id="pet-action-title" style="color:var(--dark);font-size:11px;"></div>
+    <canvas id="pet-action-canvas" style="display:block;margin:8px auto;"></canvas>
+    <div id="pet-action-stats" style="font-size:7px;line-height:2;margin-bottom:10px;"></div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button class="btn small green" id="pet-set-guard-0">🛡️ 守卫槽 1</button>
+      <button class="btn small green" id="pet-set-guard-1">🛡️ 守卫槽 2</button>
+      <button class="btn small" style="background:var(--orange);" id="pet-unguard-btn" style="display:none;">↩️ 撤回守卫</button>
+      <button class="btn small secondary" id="pet-action-close">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 全服通知条 -->
+<div id="global-notice"></div>
+
+<!-- 升级弹窗 -->
+<div id="levelup-modal">
+  <div class="modal-box" style="text-align:center;">
+    <div style="font-size:20px;margin-bottom:8px;">🎉</div>
+    <div class="modal-title success" style="font-size:14px;">等级提升！</div>
+    <div id="levelup-desc" style="font-size:8px;line-height:2;margin:10px 0;color:var(--dark);"></div>
+    <button class="modal-close" id="levelup-close">太棒了！</button>
+  </div>
+</div>
+
+<!-- 脚本 -->
+<script src="render.js"></script>
+<script src="game.js"></script>
+
+</body>
+</html>

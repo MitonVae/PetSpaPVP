@@ -1,0 +1,16 @@
+# 依赖包（Railway自动npm install）
+node_modules/
+
+# 运行时数据（Railway上重新初始化）
+data/*.json
+
+# 日志
+*.log
+npm-debug.log*
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 环境变量（如有敏感信息）
+.env
