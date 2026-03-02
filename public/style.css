@@ -1,22 +1,35 @@
 /* ============================================================
-   style.css — 温泉宠物镇 像素风UI
-   调色板（5色）:
-     --bg:      #F5ECD7  暖米色（背景）
-     --blue:    #8BB5C8  灰蓝（水/UI框）
-     --orange:  #E8A87C  粉橙（蛋/高亮/按钮）
-     --green:   #7DAF8C  苔绿（宠物/自然/成功）
-     --dark:    #5C4A6B  深茄（文字/边框/标题）
+   style.css — 温泉宠物镇 v2
+   调色板:
+     --bg:      #FDF6EC  暖米（背景）
+     --panel:   #FFF9F0  面板底色
+     --water:   #7EC8D8  温泉水蓝
+     --steam:   #B8E4ED  蒸汽浅蓝
+     --orange:  #F4A261  珊瑚橙（按钮/高亮）
+     --purple:  #9B7DB8  紫罗兰（守卫/技能）
+     --dark:    #4A3660  深茄紫（文字/边框）
+     --gold:    #E8C84A  金色（传说/金币）
+     --success: #5CB85C  绿（成功）
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
 :root {
-  --bg:     #F5ECD7;
-  --blue:   #8BB5C8;
-  --orange: #E8A87C;
-  --green:  #7DAF8C;
-  --dark:   #5C4A6B;
+  --bg:      #FDF6EC;
+  --panel:   #FFF9F0;
+  --water:   #7EC8D8;
+  --steam:   #B8E4ED;
+  --orange:  #F4A261;
+  --purple:  #9B7DB8;
+  --dark:    #4A3660;
+  --gold:    #E8C84A;
+  --success: #5CB85C;
+  --danger:  #E05C5C;
   --px: 3px;
+
+  /* 向后兼容旧变量名 */
+  --blue:  #7EC8D8;
+  --green: #5CB85C;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,22 +38,112 @@ body {
   background: var(--bg);
   color: var(--dark);
   font-family: 'Press Start 2P', monospace;
-  font-size: 9px;
-  line-height: 1.8;
+  font-size: 11px;
+  line-height: 1.9;
   min-height: 100vh;
   overflow-x: hidden;
   image-rendering: pixelated;
 }
 
-/* ── 像素边框 mixin ── */
-.px-border {
+/* ── 像素边框 ── */
+.px-border       { border: 3px solid var(--dark); box-shadow: 3px 3px 0 var(--dark); }
+.px-border-water { border: 3px solid var(--water); box-shadow: 3px 3px 0 var(--water); }
+.px-border-purple{ border: 3px solid var(--purple); box-shadow: 3px 3px 0 var(--purple); }
+
+/* ── 温泉池示意图（SVG 内联装饰） ── */
+.spa-scene {
+  width: 100%;
+  max-width: 420px;
+  height: 90px;
+  margin: 0 auto 18px;
+  background: linear-gradient(180deg, #B8E4ED 0%, #7EC8D8 55%, #5BB5CA 100%);
   border: 3px solid var(--dark);
-  box-shadow: 3px 3px 0 var(--dark);
+  box-shadow: 4px 4px 0 var(--dark);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
 }
 
-.px-border-blue {
-  border: 3px solid var(--blue);
-  box-shadow: 3px 3px 0 var(--blue);
+/* 温泉水面像素波浪 */
+.spa-scene::before {
+  content: '';
+  position: absolute;
+  bottom: 22px;
+  left: 0; right: 0;
+  height: 6px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px, transparent 8px,
+    rgba(255,255,255,0.55) 8px, rgba(255,255,255,0.55) 14px
+  );
+  animation: wave 1.6s linear infinite;
+}
+/* 第二层波浪 */
+.spa-scene::after {
+  content: '';
+  position: absolute;
+  bottom: 16px;
+  left: -10px; right: -10px;
+  height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px, transparent 6px,
+    rgba(255,255,255,0.35) 6px, rgba(255,255,255,0.35) 10px
+  );
+  animation: wave 2.2s linear infinite reverse;
+}
+@keyframes wave {
+  from { background-position: 0 0; }
+  to   { background-position: 24px 0; }
+}
+
+/* 温泉石头装饰 */
+.spa-rocks {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 28px;
+  background: repeating-linear-gradient(
+    90deg,
+    #7A6A8A 0px, #7A6A8A 18px,
+    #9A8AAA 18px, #9A8AAA 30px,
+    #6A5A7A 30px, #6A5A7A 42px,
+    #8A7A9A 42px, #8A7A9A 52px,
+    #7A6A8A 52px, #7A6A8A 64px
+  );
+}
+
+/* 蒸汽泡泡 */
+.spa-steam {
+  position: absolute;
+  top: 10px;
+  display: flex;
+  gap: 24px;
+  padding-left: 20px;
+  animation: rise 2.5s ease-in-out infinite;
+}
+@keyframes rise {
+  0%,100% { transform: translateY(0) scale(1); opacity: 0.7; }
+  50%      { transform: translateY(-8px) scale(1.1); opacity: 1; }
+}
+.spa-steam span {
+  font-size: 18px;
+  opacity: 0.6;
+  animation: rise 2.5s ease-in-out infinite;
+}
+.spa-steam span:nth-child(2) { animation-delay: 0.6s; }
+.spa-steam span:nth-child(3) { animation-delay: 1.2s; }
+
+/* 温泉池等级标签 */
+.spa-level-badge {
+  position: absolute;
+  top: 6px; right: 8px;
+  background: var(--gold);
+  border: 2px solid var(--dark);
+  box-shadow: 2px 2px 0 var(--dark);
+  font-size: 8px;
+  padding: 2px 6px;
+  color: var(--dark);
 }
 
 /* ============================================================
@@ -55,16 +158,16 @@ body {
   justify-content: space-between;
   background: var(--dark);
   color: var(--bg);
-  padding: 8px 12px;
-  border-bottom: 3px solid var(--orange);
+  padding: 10px 16px;
+  border-bottom: 4px solid var(--orange);
   position: sticky;
   top: 0;
   z-index: 100;
 }
-#topbar .logo { font-size: 11px; color: var(--orange); letter-spacing: 1px; }
-#topbar .player-info { display: flex; gap: 10px; align-items: center; font-size: 8px; flex-wrap: wrap; }
-#topbar .player-info span { color: var(--blue); }
-#topbar .player-info .coins { color: var(--orange); }
+#topbar .logo { font-size: 13px; color: var(--orange); letter-spacing: 2px; }
+#topbar .player-info { display: flex; gap: 12px; align-items: center; font-size: 10px; flex-wrap: wrap; }
+#topbar .player-info span { color: var(--steam); }
+#topbar .player-info .coins { color: var(--gold); }
 
 /* ── EXP 进度条（顶栏） ── */
 .exp-bar-wrap {
@@ -194,28 +297,73 @@ body {
 .egg-timer .ready { color: var(--orange); font-size: 9px; animation: blink 1s step-end infinite; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-/* 守卫槽 */
+/* 守卫槽 — 紫罗兰主题，与宠物绿色区分 */
 .guard-slots {
   display: flex;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 .guard-slot {
-  width: 90px;
-  min-height: 100px;
-  border: 3px solid var(--dark);
-  box-shadow: 2px 2px 0 var(--dark);
-  background: var(--green);
+  width: 96px;
+  min-height: 110px;
+  border: 3px solid var(--purple);
+  box-shadow: 3px 3px 0 var(--purple);
+  background: #EEE4F8;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 4px;
+  padding: 8px 4px 6px;
   position: relative;
   cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
 }
-.guard-slot.empty { background: var(--bg); border-style: dashed; }
-.guard-slot .slot-label { font-size: 7px; color: var(--dark); margin-bottom: 4px; }
+.guard-slot:hover { transform: translateY(-2px); box-shadow: 4px 4px 0 var(--purple); }
+.guard-slot.occupied { background: #DDD0F0; }
+.guard-slot.empty {
+  background: rgba(155,125,184,0.08);
+  border-style: dashed;
+  border-color: var(--purple);
+  box-shadow: none;
+}
+.guard-slot.empty::after {
+  content: '+ 守卫';
+  font-size: 8px;
+  color: var(--purple);
+  opacity: 0.7;
+  margin-top: 6px;
+}
+.guard-slot .slot-label {
+  font-size: 7px;
+  color: var(--purple);
+  margin-bottom: 4px;
+  background: rgba(155,125,184,0.2);
+  padding: 1px 4px;
+  border-radius: 0;
+  border: 1px solid var(--purple);
+  width: 100%;
+  text-align: center;
+}
+.guard-slot .guard-class-tag {
+  font-size: 6px;
+  margin-top: 2px;
+  padding: 1px 4px;
+  border: 1px solid var(--dark);
+}
+.guard-slot .guard-class-tag.fighter { background: var(--orange); color: var(--dark); }
+.guard-slot .guard-class-tag.skill   { background: var(--purple); color: #fff; }
+.guard-slot .unguard-btn {
+  font-size: 7px;
+  background: var(--danger);
+  color: #fff;
+  border: 1px solid var(--dark);
+  padding: 1px 4px;
+  cursor: pointer;
+  margin-top: 4px;
+  width: 100%;
+  font-family: inherit;
+  text-align: center;
+}
 
 /* ============================================================
    宠物卡片
@@ -718,4 +866,440 @@ canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
   padding: 1px 4px;
   border: 1px solid var(--orange);
   white-space: nowrap;
+}
+
+/* ============================================================
+   导航 Tab — 升大字体版本
+   ============================================================ */
+.nav-btn {
+  font-size: 9px;
+  padding: 10px 6px;
+}
+
+/* ============================================================
+   按钮系统 v2 — 多色变体
+   ============================================================ */
+.btn {
+  font-size: 10px;
+  padding: 9px 14px;
+}
+.btn.purple   { background: var(--purple); color: #fff; }
+.btn.gold     { background: var(--gold); color: var(--dark); }
+.btn.danger   { background: var(--danger); color: #fff; }
+.btn.water    { background: var(--water); color: var(--dark); }
+.btn.outline  {
+  background: transparent;
+  color: var(--dark);
+  border: 2px solid var(--dark);
+  box-shadow: 2px 2px 0 var(--dark);
+}
+.btn.outline:hover { background: var(--bg); }
+
+/* ============================================================
+   商店面板
+   ============================================================ */
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.shop-card {
+  border: 3px solid var(--dark);
+  box-shadow: 3px 3px 0 var(--dark);
+  background: var(--panel);
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.shop-card .shop-icon { font-size: 26px; margin-bottom: 2px; }
+.shop-card .shop-name { font-size: 10px; color: var(--dark); }
+.shop-card .shop-desc { font-size: 8px; color: var(--dark); opacity: 0.75; line-height: 1.7; }
+.shop-card .shop-price {
+  font-size: 10px;
+  color: var(--dark);
+  background: var(--gold);
+  border: 2px solid var(--dark);
+  padding: 2px 7px;
+  margin: 4px 0;
+}
+.shop-card .shop-price.rare-price { background: var(--water); }
+.shop-card .shop-price.legend-price { background: var(--orange); }
+.shop-card .shop-btn {
+  background: var(--orange);
+  color: var(--dark);
+  border: 2px solid var(--dark);
+  box-shadow: 2px 2px 0 var(--dark);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 9px;
+  cursor: pointer;
+  transition: transform 0.1s;
+  width: 100%;
+  text-align: center;
+}
+.shop-card .shop-btn:hover { transform: translateY(-1px); }
+.shop-card .shop-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.shop-card .shop-btn.purple-btn { background: var(--purple); color: #fff; }
+.shop-card .shop-btn.water-btn  { background: var(--water); color: var(--dark); }
+
+/* 品级标签 */
+.rarity-badge.common  { background: #E0D5C5; color: var(--dark); }
+.rarity-badge.rare    { background: var(--water); color: var(--dark); }
+.rarity-badge.legend  { background: var(--gold); color: var(--dark); }
+
+/* 宠物类型标签 */
+.pet-class-badge {
+  font-size: 7px;
+  padding: 2px 5px;
+  border: 1px solid var(--dark);
+  margin-top: 1px;
+}
+.pet-class-badge.fighter { background: var(--orange); color: var(--dark); }
+.pet-class-badge.skill   { background: var(--purple); color: #fff; }
+
+/* ============================================================
+   邻居申请通知条
+   ============================================================ */
+.friend-req-banner {
+  background: var(--steam);
+  border: 3px solid var(--water);
+  box-shadow: 3px 3px 0 var(--water);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 9px;
+}
+.friend-req-banner .req-from { flex: 1; color: var(--dark); }
+.friend-req-banner .req-btns { display: flex; gap: 6px; }
+
+/* ============================================================
+   邻居卡片 v2
+   ============================================================ */
+.neighbor-card {
+  width: 170px;
+  border: 3px solid var(--water);
+  box-shadow: 3px 3px 0 var(--water);
+  background: var(--panel);
+  padding: 12px 10px;
+}
+.neighbor-card .nb-name  { font-size: 10px; }
+.neighbor-card .nb-level { font-size: 8px; color: var(--purple); margin-bottom: 6px; }
+.neighbor-card .nb-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+}
+.neighbor-card .nb-actions button {
+  width: 100%;
+  font-family: inherit;
+  font-size: 8px;
+  padding: 5px 4px;
+  border: 2px solid var(--dark);
+  box-shadow: 2px 2px 0 var(--dark);
+  cursor: pointer;
+  background: var(--bg);
+  transition: background 0.1s;
+}
+.neighbor-card .nb-actions button:hover { background: var(--orange); }
+.neighbor-card .nb-remove {
+  top: -8px; right: -8px;
+  background: var(--danger);
+  color: #fff;
+  border: 2px solid var(--dark);
+  font-size: 9px;
+  padding: 1px 5px;
+  line-height: 1.6;
+}
+
+/* ============================================================
+   通知弹窗（Toast）
+   ============================================================ */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+}
+.toast {
+  background: var(--dark);
+  color: var(--bg);
+  border: 3px solid var(--orange);
+  box-shadow: 4px 4px 0 var(--orange);
+  padding: 10px 20px;
+  font-size: 10px;
+  max-width: 340px;
+  text-align: center;
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  pointer-events: auto;
+}
+.toast.success { border-color: var(--success); box-shadow: 4px 4px 0 var(--success); }
+.toast.error   { border-color: var(--danger);  box-shadow: 4px 4px 0 var(--danger);  }
+.toast.info    { border-color: var(--water);   box-shadow: 4px 4px 0 var(--water);   }
+@keyframes toastIn  { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
+@keyframes toastOut { from { opacity:1; } to { opacity:0; transform:translateY(-8px); } }
+
+/* ── game.js 新增 CSS 类补充 ── */
+/* class-badge / skill-badge / skill-tag */
+.class-badge {
+  display: inline-block;
+  font-size: 6px;
+  padding: 1px 4px;
+  border: 1px solid var(--dark);
+  background: var(--orange);
+  color: var(--dark);
+  font-family: inherit;
+  image-rendering: pixelated;
+}
+.class-badge.skill { background: var(--purple); color: #fff; border-color: var(--purple); }
+.class-badge.fighter { background: var(--water); color: var(--dark); }
+.skill-badge {
+  display: inline-block;
+  font-size: 6px;
+  padding: 1px 4px;
+  background: rgba(155,125,184,0.2);
+  border: 1px solid var(--purple);
+  color: var(--purple);
+}
+.skill-tag {
+  font-size: 6px;
+  padding: 1px 4px;
+  background: var(--purple);
+  color: #fff;
+  border: 1px solid var(--dark);
+  margin-top: 2px;
+  text-align: center;
+}
+
+/* egg-source-tag */
+.egg-source-tag {
+  font-size: 6px;
+  position: absolute;
+  top: 2px; right: 2px;
+  background: var(--dark);
+  color: var(--bg);
+  padding: 1px 3px;
+}
+.egg-slot { position: relative; }
+
+/* visit-egg (偷袭面板蛋卡片) */
+.visit-egg {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px;
+  border: 2px solid var(--dark);
+  background: var(--bg);
+  cursor: pointer;
+  margin: 4px;
+  transition: background 0.1s;
+}
+.visit-egg:hover { background: var(--orange); }
+.visit-egg.selected { background: var(--orange); border-color: var(--orange); box-shadow: 2px 2px 0 var(--dark); }
+.target-eggs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+
+/* attacker-opt */
+.attacker-opt {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 8px;
+  border: 2px solid var(--dark);
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 8px;
+  margin: 3px;
+}
+.attacker-opt.selected { background: var(--water); border-color: var(--water); }
+.attacker-opt:hover { background: var(--orange); }
+
+/* friend-req-card */
+.friend-req-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(126,200,216,0.15);
+  border: 2px solid var(--water);
+  margin-bottom: 6px;
+  font-size: 8px;
+  gap: 10px;
+}
+
+/* task-body / task-right */
+.task-body { flex: 1; }
+.task-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 52px; }
+.task-reward { font-size: 7px; color: var(--orange); }
+
+/* search-result-card */
+.search-result-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 2px solid var(--dark);
+  box-shadow: 2px 2px 0 var(--dark);
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* pet-info */
+.pet-info { flex: 1; }
+
+/* pet-pick-opt (守卫选择弹窗) */
+.pet-pick-opt {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px;
+  border: 2px solid var(--dark);
+  background: var(--bg);
+  cursor: pointer;
+  margin: 4px;
+  font-size: 7px;
+}
+.pet-pick-opt:hover { background: var(--purple); color: #fff; }
+
+/* neighbor-info 补充 */
+.neighbor-info { flex: 1; }
+
+/* guard-slot filled 状态 */
+.guard-slot.filled { border-color: var(--purple); background: rgba(155,125,184,0.08); }
+
+/* toast show 状态（原动画改为class控制） */
+.toast { opacity: 0; transition: opacity 0.3s, transform 0.3s; transform: translateY(16px); }
+.toast.show { opacity: 1; transform: none; }
+
+/* global-notice active */
+#global-notice.active { display: block !important; }
+#global-notice { display: none; }
+
+/* empty-slot-hint */
+.empty-slot-hint { font-size: 7px; opacity: 0.5; text-align: center; padding: 8px 4px; }
+
+/* ready-pulse */
+.ready-pulse {
+  display: inline-block;
+  font-size: 8px;
+  color: var(--orange);
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes pulse { from { opacity: 0.6; } to { opacity: 1; transform: scale(1.05); } }
+
+/* visit-guards 布局 */
+.visit-guards { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; min-height: 40px; }
+
+/* ============================================================
+   宠物详情弹窗 v2
+   ============================================================ */
+#pet-action-modal .modal-box {
+  max-width: 360px;
+  text-align: left;
+}
+#pet-action-modal .pet-detail-header {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--dark);
+}
+#pet-action-modal .pet-detail-name { font-size: 12px; }
+#pet-action-modal .pet-detail-stats { font-size: 9px; line-height: 2; }
+#pet-action-modal .pet-detail-skills {
+  font-size: 8px;
+  background: rgba(155,125,184,0.1);
+  border: 2px solid var(--purple);
+  padding: 8px;
+  margin-bottom: 10px;
+}
+#pet-action-modal .pet-action-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* ============================================================
+   守卫槽选择器弹窗
+   ============================================================ */
+#guard-select-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(74,54,96,0.65);
+  z-index: 210;
+  align-items: center;
+  justify-content: center;
+}
+#guard-select-modal.active { display: flex; }
+#guard-select-modal .modal-box { max-width: 400px; text-align: left; }
+#guard-select-modal .pet-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.pet-pick-item {
+  border: 2px solid var(--dark);
+  background: var(--bg);
+  padding: 6px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 8px;
+  transition: background 0.1s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 80px;
+}
+.pet-pick-item:hover { background: var(--steam); }
+.pet-pick-item.skill  { border-color: var(--purple); }
+.pet-pick-item.fighter { border-color: var(--orange); }
+
+/* ============================================================
+   访客/偷窃界面 — 守卫展示
+   ============================================================ */
+.visit-guards {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.visit-guard-card {
+  border: 2px solid var(--purple);
+  box-shadow: 2px 2px 0 var(--purple);
+  background: #EEE4F8;
+  padding: 6px 8px;
+  font-size: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 72px;
+}
+
+/* ============================================================
+   响应式补充
+   ============================================================ */
+@media (max-width: 600px) {
+  .shop-grid { grid-template-columns: 1fr 1fr; }
+  .guard-slot { width: 80px; min-height: 90px; }
+  .nav-btn { font-size: 7px; padding: 8px 2px; }
+  #topbar .logo { font-size: 10px; }
+  #topbar .player-info { font-size: 8px; }
 }

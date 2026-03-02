@@ -1,5 +1,5 @@
 // ============================================================
-// db.js — 纯 JSON 文件存储层（无需原生 C++ 依赖）
+// db.js — 纯 JSON 文件存储层（v2: 宠物分类+技能/邻居申请/商店/升级）
 // ============================================================
 const fs   = require('fs');
 const path = require('path');
@@ -9,13 +9,14 @@ const DATA_DIR = path.join(__dirname, '../data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const FILES = {
-  players:     path.join(DATA_DIR, 'players.json'),
-  eggs:        path.join(DATA_DIR, 'eggs.json'),
-  pets:        path.join(DATA_DIR, 'pets.json'),
-  traps:       path.join(DATA_DIR, 'traps.json'),
-  steal_log:   path.join(DATA_DIR, 'steal_log.json'),
-  daily_tasks: path.join(DATA_DIR, 'daily_tasks.json'),
-  neighbors:   path.join(DATA_DIR, 'neighbors.json'),
+  players:         path.join(DATA_DIR, 'players.json'),
+  eggs:            path.join(DATA_DIR, 'eggs.json'),
+  pets:            path.join(DATA_DIR, 'pets.json'),
+  steal_log:       path.join(DATA_DIR, 'steal_log.json'),
+  daily_tasks:     path.join(DATA_DIR, 'daily_tasks.json'),
+  neighbors:       path.join(DATA_DIR, 'neighbors.json'),
+  friend_requests: path.join(DATA_DIR, 'friend_requests.json'),
+  boost_log:       path.join(DATA_DIR, 'boost_log.json'),
 };
 
 function readDB(key) {
@@ -38,7 +39,14 @@ function createPlayer(username, password) {
   const player = {
     id: uuidv4(), username, password,
     coins: 100, level: 1, exp: 0,
-    last_signin: '', created_at: Math.floor(Date.now() / 1000),
+    last_signin: '',
+    // 温泉池等级（1-4），影响孵化速度
+    spa_level: 1,
+    // 额外解锁的守卫槽数量（基础2个）
+    extra_guard_slots: 0,
+    // 额外解锁的蛋槽（通过购买，基础跟等级走）
+    extra_egg_slots: 0,
+    created_at: Math.floor(Date.now() / 1000),
   };
   players.push(player);
   writeDB('players', players);
@@ -84,12 +92,65 @@ function getLeaderboard() {
     .slice(0, 50);
 }
 
+// 温泉池升级
+const SPA_UPGRADE_COST = [0, 100, 250, 500]; // level 1→2→3→4
+function upgradeSpa(playerId) {
+  const player = getPlayerById(playerId);
+  if (!player) return { error: 'player_not_found' };
+  if (player.spa_level >= 4) return { error: 'max_level' };
+  const cost = SPA_UPGRADE_COST[player.spa_level];
+  if (player.coins < cost) return { error: 'not_enough_coins', cost };
+  updatePlayer(playerId, p => {
+    p.coins -= cost;
+    p.spa_level += 1;
+  });
+  return { ok: true, newLevel: player.spa_level + 1 };
+}
+
+// 购买额外守卫槽（最多1个额外，即最多3个守卫槽）
+const EXTRA_GUARD_COST = 150;
+function buyGuardSlot(playerId) {
+  const player = getPlayerById(playerId);
+  if (!player) return { error: 'player_not_found' };
+  if (player.extra_guard_slots >= 1) return { error: 'max_slots' };
+  if (player.coins < EXTRA_GUARD_COST) return { error: 'not_enough_coins', cost: EXTRA_GUARD_COST };
+  updatePlayer(playerId, p => {
+    p.coins -= EXTRA_GUARD_COST;
+    p.extra_guard_slots += 1;
+  });
+  return { ok: true };
+}
+
+// 购买额外蛋槽
+const EXTRA_EGG_SLOT_COST = 80;
+function buyEggSlot(playerId) {
+  const player = getPlayerById(playerId);
+  if (!player) return { error: 'player_not_found' };
+  const base = maxSlotsForLevel(player.level);
+  const current = base + (player.extra_egg_slots || 0);
+  if (current >= 6) return { error: 'max_slots' };
+  if (player.coins < EXTRA_EGG_SLOT_COST) return { error: 'not_enough_coins', cost: EXTRA_EGG_SLOT_COST };
+  updatePlayer(playerId, p => {
+    p.coins -= EXTRA_EGG_SLOT_COST;
+    p.extra_egg_slots = (p.extra_egg_slots || 0) + 1;
+  });
+  return { ok: true };
+}
+
 // ============================================================
 // Eggs
 // ============================================================
-// 每种稀有度孵化时长（秒）
-const HATCH_DURATION = { common: 120, rare: 300, legend: 600 };
-// 稀有度随机权重
+// 基础孵化时长（秒），温泉等级会缩短
+const BASE_HATCH_DURATION = { common: 120, rare: 300, legend: 600 };
+// 温泉等级加速倍率
+const SPA_SPEED_MULTIPLIER = [1.0, 1.0, 0.85, 0.7, 0.55];
+
+function getHatchDuration(rarity, spaLevel = 1) {
+  const base = BASE_HATCH_DURATION[rarity];
+  const mult = SPA_SPEED_MULTIPLIER[spaLevel] || 1.0;
+  return Math.floor(base * mult);
+}
+
 const RARITY_WEIGHTS = [
   { rarity: 'common', w: 70 },
   { rarity: 'rare',   w: 25 },
@@ -113,27 +174,68 @@ function maxSlotsForLevel(level) {
   return 2;
 }
 
-function placeEgg(ownerId, slot) {
+function totalEggSlots(playerId) {
+  const player = getPlayerById(playerId);
+  if (!player) return 2;
+  return maxSlotsForLevel(player.level) + (player.extra_egg_slots || 0);
+}
+
+// 放蛋（来源：hatch/buy/signin/task/gift）
+function placeEgg(ownerId, slot, rarity = null, source = 'hatch') {
   const player = getPlayerById(ownerId);
   if (!player) return { error: 'player_not_found' };
-  const maxSlots = maxSlotsForLevel(player.level);
+  const maxSlots = totalEggSlots(ownerId);
   const eggs = readDB('eggs');
   const active = eggs.filter(e => e.owner_id === ownerId && !e.is_hatched);
   if (active.length >= maxSlots) return { error: 'slots_full' };
   if (active.find(e => e.slot === slot)) return { error: 'slot_occupied' };
-  if (player.coins < 10) return { error: 'not_enough_coins' };
 
-  const rarity = rollRarity();
+  // 普通孵蛋需花费金币
+  if (source === 'hatch') {
+    if (player.coins < 10) return { error: 'not_enough_coins' };
+    addCoins(ownerId, -10);
+  }
+
+  const finalRarity = rarity || rollRarity();
   const now = Math.floor(Date.now() / 1000);
+  const duration = getHatchDuration(finalRarity, player.spa_level || 1);
   const egg = {
     id: uuidv4(), owner_id: ownerId, slot,
-    rarity, hatch_at: now + HATCH_DURATION[rarity],
-    placed_at: now, is_hatched: false, pet_id: null,
+    rarity: finalRarity,
+    hatch_at: now + duration,
+    placed_at: now,
+    is_hatched: false,
+    pet_id: null,
+    source,   // 来源：hatch/buy/signin/task/gift
   };
   eggs.push(egg);
   writeDB('eggs', eggs);
-  addCoins(ownerId, -10);
   return { ...egg };
+}
+
+// 商店购买蛋（保底品级）
+const SHOP_EGG_PRICES = { common: 10, rare: 50, legend: 180 };
+function buyEgg(ownerId, rarity) {
+  if (!['common','rare','legend'].includes(rarity)) return { error: 'invalid_rarity' };
+  const player = getPlayerById(ownerId);
+  if (!player) return { error: 'player_not_found' };
+  const cost = SHOP_EGG_PRICES[rarity];
+  if (player.coins < cost) return { error: 'not_enough_coins', cost };
+
+  // 找空槽
+  const maxSlots = totalEggSlots(ownerId);
+  const eggs = readDB('eggs');
+  const active = eggs.filter(e => e.owner_id === ownerId && !e.is_hatched);
+  if (active.length >= maxSlots) return { error: 'slots_full' };
+  const occupiedSlots = new Set(active.map(e => e.slot));
+  let freeSlot = null;
+  for (let i = 0; i < maxSlots; i++) {
+    if (!occupiedSlots.has(i)) { freeSlot = i; break; }
+  }
+  if (freeSlot === null) return { error: 'slots_full' };
+
+  addCoins(ownerId, -cost);
+  return placeEgg(ownerId, freeSlot, rarity, 'buy');
 }
 
 function getActiveEggs(ownerId) {
@@ -144,15 +246,79 @@ function getEggById(id) {
   return readDB('eggs').find(e => e.id === id) || null;
 }
 
+// 邻居帮助加速孵化（+60秒减少孵化等待）
+function boostEgg(boosterId, targetOwnerId, eggId) {
+  const booster = getPlayerById(boosterId);
+  const owner   = getPlayerById(targetOwnerId);
+  if (!booster || !owner) return { error: 'player_not_found' };
+  if (boosterId === targetOwnerId) return { error: 'cant_boost_self' };
+
+  // 检查邻居关系
+  const neighbors = readDB('neighbors');
+  const isNeighbor = neighbors.some(
+    n => n.player_id === boosterId && n.neighbor_id === targetOwnerId
+  );
+  if (!isNeighbor) return { error: 'not_neighbor' };
+
+  // 每日加速次数限制（每个 booster 对每个 target 最多3次/天）
+  const today = new Date().toISOString().slice(0, 10);
+  const boostLog = readDB('boost_log');
+  const todayBoosts = boostLog.filter(
+    b => b.booster_id === boosterId && b.target_id === targetOwnerId && b.date === today
+  );
+  if (todayBoosts.length >= 3) return { error: 'boost_limit', limit: 3 };
+
+  const eggs = readDB('eggs');
+  const eggIdx = eggs.findIndex(e => e.id === eggId && e.owner_id === targetOwnerId && !e.is_hatched);
+  if (eggIdx === -1) return { error: 'egg_not_found' };
+
+  const now = Math.floor(Date.now() / 1000);
+  // 减少60秒，不低于当前时间
+  eggs[eggIdx].hatch_at = Math.max(now, eggs[eggIdx].hatch_at - 60);
+  writeDB('eggs', eggs);
+
+  // 记录加速日志
+  boostLog.push({ id: uuidv4(), booster_id: boosterId, target_id: targetOwnerId, egg_id: eggId, date: today, at: now });
+  writeDB('boost_log', boostLog.slice(-2000));
+
+  // 助推者获得经验
+  addExp(boosterId, 5);
+
+  return { ok: true, newHatchAt: eggs[eggIdx].hatch_at, boosterExp: 5 };
+}
+
 // ============================================================
-// Pets
+// Pets（v2: 增加 pet_class + skill 字段）
 // ============================================================
 const PET_TYPES = ['bear', 'fox', 'bunny', 'cat', 'dragon'];
 
-function rollPetStats(rarity) {
+// 技能型宠物可能拥有的技能列表
+const SKILL_LIST = [
+  { id: 'mud',      name: '泥潭术',  desc: '守卫时降低入侵成功率 -20%', effect: 'rate_down', value: 0.20 },
+  { id: 'thorn',    name: '荆棘甲',  desc: '守卫时成功率-30%，失败者额外损失20金', effect: 'rate_down_penalty', value: 0.30, penalty: 20 },
+  { id: 'sleep',    name: '催眠曲',  desc: '守卫时成功率 -45%（最强防御）', effect: 'rate_down', value: 0.45 },
+  { id: 'foresee',  name: '预知眼',  desc: '守卫时额外反制 +15% 防御效果', effect: 'rate_down', value: 0.15 },
+  { id: 'inspire',  name: '鼓舞',    desc: '友方战斗型守卫 ATK+20%', effect: 'buff_ally', value: 0.20 },
+];
+
+function rollPetClass() {
+  // 60%战斗型，40%技能型
+  return Math.random() < 0.6 ? 'fighter' : 'skill';
+}
+
+function rollPetStats(rarity, petClass) {
   const base = rarity === 'legend' ? 25 : rarity === 'rare' ? 18 : 12;
   const rand = () => base + Math.floor(Math.random() * 8);
+  if (petClass === 'fighter') {
+    // 战斗型属性更高
+    return { atk: rand() + 3, def: rand() + 3, spd: rand() + 2 };
+  }
+  // 技能型基础属性略低，依靠技能补强
   return { atk: rand(), def: rand(), spd: rand() };
+}
+
+function rollSkill() {
+  return SKILL_LIST[Math.floor(Math.random() * SKILL_LIST.length)];
 }
 
 function hatchEgg(eggId) {
@@ -161,17 +327,25 @@ function hatchEgg(eggId) {
   if (eggIdx === -1 || eggs[eggIdx].is_hatched) return null;
 
   const egg = eggs[eggIdx];
-  const stats = rollPetStats(egg.rarity);
-  const PET_TYPES = ['bear', 'fox', 'bunny', 'cat', 'dragon'];
+  const petClass = rollPetClass();
+  const stats = rollPetStats(egg.rarity, petClass);
   const type = PET_TYPES[Math.floor(Math.random() * PET_TYPES.length)];
   const name = type[0].toUpperCase() + type.slice(1);
   const petId = uuidv4();
 
+  const skill = petClass === 'skill' ? rollSkill() : null;
+
   const pet = {
     id: petId, owner_id: egg.owner_id, name, type,
-    rarity: egg.rarity, ...stats,
-    level: 1, exp: 0, role: 'idle', guard_slot: null,
+    rarity: egg.rarity,
+    pet_class: petClass,   // 'fighter' | 'skill'
+    skill: skill,          // 技能对象（仅 skill 类型有）
+    ...stats,
+    level: 1, exp: 0,
+    role: 'idle',          // 'idle' | 'guard'
+    guard_slot: null,
     obtained_at: Math.floor(Date.now() / 1000),
+    egg_source: egg.source || 'hatch',
   };
   const pets = readDB('pets');
   pets.push(pet);
@@ -201,8 +375,16 @@ function updatePet(id, updater) {
   writeDB('pets', pets);
 }
 
+// 守卫槽总数（基础2 + 额外购买）
+function totalGuardSlots(playerId) {
+  const player = getPlayerById(playerId);
+  if (!player) return 2;
+  return 2 + (player.extra_guard_slots || 0);
+}
+
 function setGuard(petId, ownerId, guardSlot) {
   const pets = readDB('pets');
+  // 移除同一槽位上的旧守卫
   pets.forEach(p => {
     if (p.owner_id === ownerId && p.guard_slot === guardSlot && p.role === 'guard') {
       p.role = 'idle'; p.guard_slot = null;
@@ -229,50 +411,26 @@ function addPetExp(petId, amount) {
 }
 
 // ============================================================
-// Traps
+// Steal Logic（v2: 移除陷阱，改用技能型守卫效果）
 // ============================================================
-const TRAP_COST = { mud: 15, thorn: 25, sleep: 35 };
-
-function placeTrap(ownerId, slot, type) {
-  const player = getPlayerById(ownerId);
-  const cost = TRAP_COST[type] || 15;
-  if (player.coins < cost) return { error: 'not_enough_coins' };
-  const traps = readDB('traps');
-  const existing = traps.find(t => t.owner_id === ownerId && t.slot === slot && !t.triggered);
-  if (existing) return { error: 'slot_has_trap' };
-  const trap = {
-    id: uuidv4(), owner_id: ownerId, slot, type,
-    triggered: false, placed_at: Math.floor(Date.now() / 1000),
-  };
-  traps.push(trap);
-  writeDB('traps', traps);
-  addCoins(ownerId, -cost);
-  return { ...trap };
-}
-
-function getTraps(ownerId) {
-  return readDB('traps').filter(t => t.owner_id === ownerId && !t.triggered);
-}
-
-function triggerTrap(trapId) {
-  const traps = readDB('traps');
-  const idx = traps.findIndex(t => t.id === trapId);
-  if (idx !== -1) { traps[idx].triggered = true; writeDB('traps', traps); }
-}
-
-// ============================================================
-// Steal Logic
-// ============================================================
-function calcStealResult(attacker, defender, strategy, attackerPet, defenderGuards, traps, eggId) {
+function calcStealResult(attacker, defender, strategy, attackerPet, defenderGuards, eggId) {
   const egg = getEggById(eggId);
   if (!egg) return { success: false, reason: 'no_egg' };
+
+  // 战斗型守卫数值
+  const fighters = defenderGuards.filter(g => g.pet_class !== 'skill');
+  const skillPets = defenderGuards.filter(g => g.pet_class === 'skill');
+
+  const atkPower = attackerPet ? attackerPet.atk + attackerPet.spd : 10;
+
+  // 战斗型守卫的防御力（有"鼓舞"技能时提升20%）
+  const hasInspire = skillPets.some(g => g.skill && g.skill.id === 'inspire');
+  const fighterDefBase = fighters.reduce((s, g) => s + g.def, 0) || 5;
+  const defPower = hasInspire ? Math.floor(fighterDefBase * 1.2) : fighterDefBase;
 
   let successRate = 0.5;
   let penaltyCoins = 0;
   let bribeCost = 0;
-
-  const atkPower = attackerPet ? attackerPet.atk + attackerPet.spd : 10;
-  const defPower = defenderGuards.reduce((s, g) => s + g.def, 0) || 5;
 
   if (strategy === 'charge') {
     successRate = 0.4 + (atkPower / (atkPower + defPower)) * 0.5;
@@ -280,7 +438,7 @@ function calcStealResult(attacker, defender, strategy, attackerPet, defenderGuar
   } else if (strategy === 'sneak') {
     const spdA = attackerPet ? attackerPet.spd : 10;
     const spdD = defenderGuards.length
-      ? defenderGuards.reduce((s, g) => s + g.spd, 0) / defenderGuards.length : 5;
+      ? defenderGuards.reduce((s, g) => s + (g.spd || 10), 0) / defenderGuards.length : 5;
     successRate = 0.35 + (spdA / (spdA + spdD)) * 0.55;
     penaltyCoins = 10;
   } else if (strategy === 'bribe') {
@@ -289,18 +447,32 @@ function calcStealResult(attacker, defender, strategy, attackerPet, defenderGuar
     successRate = 0.85;
   }
 
-  // 陷阱惩罚（潜行策略可绕过）
-  let triggeredTrap = null;
-  if (traps.length > 0 && strategy !== 'sneak') {
-    const trap = traps[Math.floor(Math.random() * traps.length)];
-    triggeredTrap = trap;
-    triggerTrap(trap.id);
-    if (trap.type === 'mud')   successRate -= 0.2;
-    if (trap.type === 'thorn') { successRate -= 0.3; penaltyCoins += 20; }
-    if (trap.type === 'sleep') successRate -= 0.45;
+  // 技能型守卫技能效果
+  let skillEffects = [];
+  for (const sp of skillPets) {
+    if (!sp.skill) continue;
+    const sk = sp.skill;
+    if (sk.effect === 'rate_down') {
+      successRate -= sk.value;
+      skillEffects.push({ skillName: sk.name, desc: sk.desc });
+    } else if (sk.effect === 'rate_down_penalty' && strategy !== 'bribe') {
+      successRate -= sk.value;
+      penaltyCoins += (sk.penalty || 0);
+      skillEffects.push({ skillName: sk.name, desc: sk.desc });
+    } else if (sk.effect === 'buff_ally') {
+      // 已在上方处理（鼓舞）
+      skillEffects.push({ skillName: sk.name, desc: sk.desc });
+    }
   }
 
-  const success = Math.random() < successRate;
+  // 预知眼 vs 强攻策略
+  const hasForesee = skillPets.some(g => g.skill && g.skill.id === 'foresee');
+  if (hasForesee && strategy === 'charge') {
+    successRate -= 0.15;
+    skillEffects.push({ skillName: '预知眼', desc: '预判强攻，额外-15%' });
+  }
+
+  const success = Math.random() < Math.max(0.05, Math.min(0.95, successRate));
   let coinsGain = 0;
 
   if (success) {
@@ -311,7 +483,6 @@ function calcStealResult(attacker, defender, strategy, attackerPet, defenderGuar
     const rarityMul = egg.rarity === 'legend' ? 5 : egg.rarity === 'rare' ? 2.5 : 1;
     coinsGain = Math.floor(30 * rarityMul * (0.3 + progress * 0.7));
 
-    // 删除被偷的蛋
     const eggs = readDB('eggs');
     writeDB('eggs', eggs.filter(e => e.id !== eggId));
 
@@ -325,7 +496,6 @@ function calcStealResult(attacker, defender, strategy, attackerPet, defenderGuar
     defenderGuards.forEach(g => addPetExp(g.id, 8));
   }
 
-  // 记录日志（最多保留 500 条）
   const logs = readDB('steal_log');
   logs.push({
     id: uuidv4(), attacker_id: attacker.id, defender_id: defender.id,
@@ -334,7 +504,7 @@ function calcStealResult(attacker, defender, strategy, attackerPet, defenderGuar
   });
   writeDB('steal_log', logs.slice(-500));
 
-  return { success, coinsGain, penaltyCoins, bribeCost, triggeredTrap, eggRarity: egg.rarity };
+  return { success, coinsGain, penaltyCoins, bribeCost, skillEffects, eggRarity: egg.rarity };
 }
 
 // ============================================================
@@ -345,6 +515,7 @@ const TASK_TEMPLATES = [
   { type: 'defend', target: 1, reward_coins: 20, reward_exp: 15, desc: '成功防御 1 次' },
   { type: 'hatch',  target: 1, reward_coins: 25, reward_exp: 10, desc: '孵化 1 只宠物' },
   { type: 'signin', target: 1, reward_coins: 15, reward_exp: 5,  desc: '每日签到' },
+  { type: 'boost',  target: 1, reward_coins: 10, reward_exp: 8,  desc: '帮邻居加速孵化 1 次' },
 ];
 
 function getTodayStr() {
@@ -393,21 +564,76 @@ function getDailyTasks(playerId) {
 }
 
 // ============================================================
-// Neighbors (好友/邻居系统)
+// Neighbors + Friend Requests（v2: 申请/同意机制）
 // ============================================================
-function addNeighbor(playerId, targetId) {
-  if (playerId === targetId) return { error: 'cant_add_self' };
-  const target = getPlayerById(targetId);
-  if (!target) return { error: 'player_not_found' };
+
+function sendFriendRequest(fromId, toId) {
+  if (fromId === toId) return { error: 'cant_add_self' };
+  const toPlayer = getPlayerById(toId);
+  if (!toPlayer) return { error: 'player_not_found' };
+
+  // 已是邻居？
   const neighbors = readDB('neighbors');
-  const existing = neighbors.find(n => n.player_id === playerId && n.neighbor_id === targetId);
-  if (existing) return { error: 'already_neighbor' };
-  neighbors.push({
-    id: uuidv4(), player_id: playerId, neighbor_id: targetId,
-    added_at: Math.floor(Date.now() / 1000),
-  });
+  if (neighbors.some(n => n.player_id === fromId && n.neighbor_id === toId)) {
+    return { error: 'already_neighbor' };
+  }
+
+  // 已发过请求？
+  const requests = readDB('friend_requests');
+  if (requests.some(r => r.from_id === fromId && r.to_id === toId && r.status === 'pending')) {
+    return { error: 'request_pending' };
+  }
+
+  const req = {
+    id: uuidv4(), from_id: fromId, to_id: toId,
+    status: 'pending', created_at: Math.floor(Date.now() / 1000),
+  };
+  requests.push(req);
+  writeDB('friend_requests', requests);
+  return { ok: true, requestId: req.id, toPlayer: { id: toPlayer.id, username: toPlayer.username } };
+}
+
+function acceptFriendRequest(requestId, acceptorId) {
+  const requests = readDB('friend_requests');
+  const idx = requests.findIndex(r => r.id === requestId && r.to_id === acceptorId && r.status === 'pending');
+  if (idx === -1) return { error: 'request_not_found' };
+
+  const req = requests[idx];
+  requests[idx].status = 'accepted';
+  writeDB('friend_requests', requests);
+
+  // 双向添加邻居
+  const neighbors = readDB('neighbors');
+  const now = Math.floor(Date.now() / 1000);
+  if (!neighbors.some(n => n.player_id === req.from_id && n.neighbor_id === req.to_id)) {
+    neighbors.push({ id: uuidv4(), player_id: req.from_id, neighbor_id: req.to_id, added_at: now });
+  }
+  if (!neighbors.some(n => n.player_id === req.to_id && n.neighbor_id === req.from_id)) {
+    neighbors.push({ id: uuidv4(), player_id: req.to_id, neighbor_id: req.from_id, added_at: now });
+  }
   writeDB('neighbors', neighbors);
-  return { ok: true, neighbor: { id: target.id, username: target.username, level: target.level, coins: target.coins } };
+
+  const fromPlayer = getPlayerById(req.from_id);
+  const toPlayer   = getPlayerById(req.to_id);
+  return { ok: true, from: { id: fromPlayer.id, username: fromPlayer.username }, to: { id: toPlayer.id, username: toPlayer.username } };
+}
+
+function rejectFriendRequest(requestId, rejectorId) {
+  const requests = readDB('friend_requests');
+  const idx = requests.findIndex(r => r.id === requestId && r.to_id === rejectorId && r.status === 'pending');
+  if (idx === -1) return { error: 'request_not_found' };
+  requests[idx].status = 'rejected';
+  writeDB('friend_requests', requests);
+  return { ok: true };
+}
+
+function getPendingRequests(playerId) {
+  // 收到的待处理请求
+  const requests = readDB('friend_requests').filter(r => r.to_id === playerId && r.status === 'pending');
+  return requests.map(r => {
+    const from = getPlayerById(r.from_id);
+    return { requestId: r.id, from: { id: from.id, username: from.username, level: from.level } };
+  });
 }
 
 function removeNeighbor(playerId, targetId) {
@@ -431,16 +657,20 @@ function getNeighbors(playerId) {
 module.exports = {
   // player
   createPlayer, getPlayerByName, getPlayerById, addCoins, addExp, signin, getLeaderboard,
+  upgradeSpa, buyGuardSlot, buyEggSlot,
+  EXTRA_GUARD_COST, EXTRA_EGG_SLOT_COST, SPA_UPGRADE_COST,
   // egg
-  placeEgg, getActiveEggs, getEggById, hatchEgg, maxSlotsForLevel, HATCH_DURATION,
+  placeEgg, buyEgg, getActiveEggs, getEggById, hatchEgg,
+  maxSlotsForLevel, totalEggSlots, getHatchDuration, boostEgg,
+  SHOP_EGG_PRICES, BASE_HATCH_DURATION,
   // pet
   getPetsByOwner, getGuards, setGuard, unguard, addPetExp,
-  // trap
-  placeTrap, getTraps,
+  totalGuardSlots, SKILL_LIST,
   // steal
   calcStealResult,
   // task
   ensureDailyTasks, progressTask, getDailyTasks, TASK_TEMPLATES,
-  // neighbors
-  addNeighbor, removeNeighbor, getNeighbors,
+  // neighbors / friend requests
+  sendFriendRequest, acceptFriendRequest, rejectFriendRequest,
+  getPendingRequests, removeNeighbor, getNeighbors,
 };

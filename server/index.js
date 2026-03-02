@@ -1,18 +1,22 @@
 // ============================================================
-// server/index.js — Express + WebSocket 游戏服务器
+// server/index.js — Express + WebSocket 游戏服务器（v2）
 // ============================================================
 const express = require('express');
-const http = require('http');
+const http    = require('http');
 const WebSocket = require('ws');
-const path = require('path');
+const path    = require('path');
+const fs      = require('fs');
 const {
   createPlayer, getPlayerByName, getPlayerById, addCoins, signin, getLeaderboard,
-  placeEgg, getActiveEggs, getEggById, hatchEgg, maxSlotsForLevel,
-  getPetsByOwner, getGuards, setGuard, unguard,
-  placeTrap, getTraps,
+  placeEgg, buyEgg, getActiveEggs, getEggById, hatchEgg, maxSlotsForLevel, totalEggSlots,
+  getPetsByOwner, getGuards, setGuard, unguard, totalGuardSlots,
   calcStealResult,
   ensureDailyTasks, progressTask, getDailyTasks, TASK_TEMPLATES,
-  addNeighbor, removeNeighbor, getNeighbors,
+  sendFriendRequest, acceptFriendRequest, rejectFriendRequest, getPendingRequests,
+  removeNeighbor, getNeighbors,
+  boostEgg,
+  upgradeSpa, buyGuardSlot, buyEggSlot,
+  SHOP_EGG_PRICES, SPA_UPGRADE_COST, EXTRA_GUARD_COST, EXTRA_EGG_SLOT_COST,
 } = require('./db');
 
 const app = express();
@@ -20,9 +24,9 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss    = new WebSocket.Server({ server });
 
-// ── 在线玩家 Map: playerId -> ws ──
+// 在线玩家 Map: playerId -> ws
 const onlinePlayers = new Map();
 
 // ============================================================
@@ -46,14 +50,15 @@ function sendToPlayer(playerId, type, payload) {
 }
 
 function buildPlayerState(playerId) {
-  const player = getPlayerById(playerId);
+  const player  = getPlayerById(playerId);
   if (!player) return null;
-  const eggs  = getActiveEggs(playerId);
-  const pets  = getPetsByOwner(playerId);
-  const traps = getTraps(playerId);
-  const tasks = getDailyTasks(playerId);
-  const maxSlots = maxSlotsForLevel(player.level);
-  return { player, eggs, pets, traps, tasks, maxSlots };
+  const eggs    = getActiveEggs(playerId);
+  const pets    = getPetsByOwner(playerId);
+  const tasks   = getDailyTasks(playerId);
+  const pending = getPendingRequests(playerId);
+  const maxSlots     = totalEggSlots(playerId);
+  const guardSlots   = totalGuardSlots(playerId);
+  return { player, eggs, pets, tasks, pending, maxSlots, guardSlots };
 }
 
 function buildVisitorView(targetId) {
@@ -61,18 +66,19 @@ function buildVisitorView(targetId) {
   if (!player) return null;
   const eggs   = getActiveEggs(targetId);
   const guards = getGuards(targetId);
-  const traps  = getTraps(targetId);
   return {
-    player: { id: player.id, username: player.username, level: player.level, coins: player.coins },
-    eggs, guards, traps,
+    player: {
+      id: player.id, username: player.username,
+      level: player.level, coins: player.coins,
+      spa_level: player.spa_level || 1,
+    },
+    eggs, guards,
   };
 }
 
 // ============================================================
 // 孵化定时器 — 每10秒扫描一次熟蛋
 // ============================================================
-const fs = require('fs');
-
 function checkHatchLoop() {
   const now = Math.floor(Date.now() / 1000);
   const eggsFile = path.join(__dirname, '../data/eggs.json');
@@ -83,19 +89,12 @@ function checkHatchLoop() {
   for (const egg of readyEggs) {
     const pet = hatchEgg(egg.id);
     if (!pet) continue;
-
     progressTask(egg.owner_id, 'hatch');
     const ownerState = buildPlayerState(egg.owner_id);
     sendToPlayer(egg.owner_id, 'EGG_HATCHED', { egg, pet, state: ownerState });
-
-    // 传说蛋孵化 → 全服广播
     if (egg.rarity === 'legend') {
       const owner = getPlayerById(egg.owner_id);
-      broadcast('LEGEND_HATCH', {
-        owner: owner.username,
-        petType: pet.type,
-        petName: pet.name,
-      });
+      broadcast('LEGEND_HATCH', { owner: owner.username, petType: pet.type, petName: pet.name });
     }
   }
 }
@@ -148,7 +147,7 @@ wss.on('connection', (ws) => {
       return send(ws, 'ERROR', { code: 'NOT_LOGGED_IN', msg: '请先登录' });
     }
 
-    // ── 放蛋 ──
+    // ── 放蛋（普通孵蛋） ──
     if (type === 'PLACE_EGG') {
       const { slot } = payload;
       const result = placeEgg(currentPlayerId, slot);
@@ -157,7 +156,23 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // ── 手动收取已孵蛋（客户端轮询触发） ──
+    // ── 商店购买蛋 ──
+    if (type === 'BUY_EGG') {
+      const { rarity } = payload;
+      const result = buyEgg(currentPlayerId, rarity);
+      if (result.error) {
+        const msgs = {
+          slots_full: '蛋池已满！',
+          not_enough_coins: `金币不足！需要 ${SHOP_EGG_PRICES[rarity]} 🪙`,
+          invalid_rarity: '无效品级',
+        };
+        return send(ws, 'ERROR', { code: result.error, msg: msgs[result.error] || result.error });
+      }
+      send(ws, 'EGG_PURCHASED', { egg: result, state: buildPlayerState(currentPlayerId) });
+      return;
+    }
+
+    // ── 手动收取已孵蛋 ──
     if (type === 'COLLECT_EGG') {
       const { eggId } = payload;
       const egg = getEggById(eggId);
@@ -169,6 +184,7 @@ wss.on('connection', (ws) => {
         return send(ws, 'ERROR', { code: 'NOT_READY', remainSec: egg.hatch_at - now });
       }
       const pet = hatchEgg(eggId);
+      if (!pet) return send(ws, 'ERROR', { code: 'HATCH_FAILED' });
       progressTask(currentPlayerId, 'hatch');
       send(ws, 'EGG_HATCHED', { egg, pet, state: buildPlayerState(currentPlayerId) });
       if (egg.rarity === 'legend') {
@@ -183,6 +199,8 @@ wss.on('connection', (ws) => {
       const { petId, guardSlot } = payload;
       const pet = getPetsByOwner(currentPlayerId).find(p => p.id === petId);
       if (!pet) return send(ws, 'ERROR', { code: 'NOT_YOUR_PET' });
+      const maxGuard = totalGuardSlots(currentPlayerId);
+      if (guardSlot >= maxGuard) return send(ws, 'ERROR', { code: 'SLOT_LOCKED', msg: '守卫槽未解锁' });
       setGuard(petId, currentPlayerId, guardSlot);
       send(ws, 'STATE_UPDATE', buildPlayerState(currentPlayerId));
       return;
@@ -194,15 +212,6 @@ wss.on('connection', (ws) => {
       const pet = getPetsByOwner(currentPlayerId).find(p => p.id === petId);
       if (!pet) return send(ws, 'ERROR', { code: 'NOT_YOUR_PET' });
       unguard(petId);
-      send(ws, 'STATE_UPDATE', buildPlayerState(currentPlayerId));
-      return;
-    }
-
-    // ── 放置陷阱 ──
-    if (type === 'PLACE_TRAP') {
-      const { slot, trapType } = payload;
-      const result = placeTrap(currentPlayerId, slot, trapType);
-      if (result.error) return send(ws, 'ERROR', { code: result.error });
       send(ws, 'STATE_UPDATE', buildPlayerState(currentPlayerId));
       return;
     }
@@ -226,26 +235,26 @@ wss.on('connection', (ws) => {
 
       const egg = getEggById(eggId);
       if (!egg || egg.owner_id !== targetId || egg.is_hatched) {
-        return send(ws, 'ERROR', { code: 'EGG_GONE', msg: '蛋已消失或孵化' });
+        return send(ws, 'ERROR', { code: 'EGG_GONE', msg: '蛋已消失或已孵化' });
       }
 
-      const attackerPet = attackerPetId
+      const attackerPet    = attackerPetId
         ? getPetsByOwner(currentPlayerId).find(p => p.id === attackerPetId)
         : null;
       const defenderGuards = getGuards(targetId);
-      const traps = getTraps(targetId);
 
-      const result = calcStealResult(attacker, defender, strategy, attackerPet, defenderGuards, traps, eggId);
-      if (result.reason === 'no_egg') return send(ws, 'ERROR', { code: 'EGG_GONE' });
+      const result = calcStealResult(attacker, defender, strategy, attackerPet, defenderGuards, eggId);
+      if (result.reason === 'no_egg')             return send(ws, 'ERROR', { code: 'EGG_GONE' });
       if (result.reason === 'no_coins_for_bribe') return send(ws, 'ERROR', { code: 'NOT_ENOUGH_COINS', bribeCost: result.bribeCost });
 
-      // 进度任务
       if (result.success) progressTask(currentPlayerId, 'steal');
       else                progressTask(targetId, 'defend');
 
-      // 通知攻击者（注入 strategy / expGain 字段供前端展示）
-      send(ws, 'STEAL_RESULT', { ...result, strategy, expGain: result.success ? 15 : 0, attackerState: buildPlayerState(currentPlayerId) });
-      // 通知被攻击者
+      send(ws, 'STEAL_RESULT', {
+        ...result, strategy,
+        expGain: result.success ? 15 : 0,
+        attackerState: buildPlayerState(currentPlayerId),
+      });
       sendToPlayer(targetId, 'BEEN_STOLEN', {
         ...result,
         attacker: { username: attacker.username, level: attacker.level },
@@ -264,7 +273,7 @@ wss.on('connection', (ws) => {
     if (type === 'SEARCH_PLAYER') {
       const { username } = payload;
       const target = getPlayerByName(username);
-      if (!target) return send(ws, 'ERROR', { code: 'PLAYER_NOT_FOUND' });
+      if (!target) return send(ws, 'ERROR', { code: 'PLAYER_NOT_FOUND', msg: '找不到该玩家' });
       send(ws, 'SEARCH_RESULT', {
         id: target.id, username: target.username,
         level: target.level, coins: target.coins,
@@ -286,14 +295,48 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // ── 添加邻居 ──
-    if (type === 'ADD_NEIGHBOR') {
+    // ── 发送邻居申请 ──
+    if (type === 'SEND_FRIEND_REQ') {
       const { targetId } = payload;
-      const result = addNeighbor(currentPlayerId, targetId);
-      if (result.error) return send(ws, 'ERROR', { code: result.error, msg: {
-        cant_add_self: '不能添加自己', already_neighbor: '已经是邻居了', player_not_found: '玩家不存在'
-      }[result.error] });
-      send(ws, 'NEIGHBOR_ADDED', { neighbor: result.neighbor });
+      const result = sendFriendRequest(currentPlayerId, targetId);
+      if (result.error) {
+        const msgs = {
+          cant_add_self: '不能添加自己',
+          already_neighbor: '已经是邻居了',
+          player_not_found: '找不到该玩家',
+          request_pending: '已发送过申请，等待对方同意',
+        };
+        return send(ws, 'ERROR', { code: result.error, msg: msgs[result.error] || result.error });
+      }
+      send(ws, 'FRIEND_REQ_SENT', { to: result.toPlayer });
+      // 通知对方
+      sendToPlayer(targetId, 'FRIEND_REQ_RECEIVED', {
+        requestId: result.requestId,
+        from: { id: getPlayerById(currentPlayerId).id, username: getPlayerById(currentPlayerId).username, level: getPlayerById(currentPlayerId).level },
+      });
+      return;
+    }
+
+    // ── 同意邻居申请 ──
+    if (type === 'ACCEPT_FRIEND') {
+      const { requestId } = payload;
+      const result = acceptFriendRequest(requestId, currentPlayerId);
+      if (result.error) return send(ws, 'ERROR', { code: result.error, msg: '申请不存在或已处理' });
+      send(ws, 'FRIEND_ACCEPTED', { neighbor: result.from, state: buildPlayerState(currentPlayerId) });
+      // 通知申请方
+      sendToPlayer(result.from.id, 'YOUR_REQUEST_ACCEPTED', {
+        neighbor: result.to,
+        state: buildPlayerState(result.from.id),
+      });
+      return;
+    }
+
+    // ── 拒绝邻居申请 ──
+    if (type === 'REJECT_FRIEND') {
+      const { requestId } = payload;
+      const result = rejectFriendRequest(requestId, currentPlayerId);
+      if (result.error) return send(ws, 'ERROR', { code: result.error });
+      send(ws, 'STATE_UPDATE', buildPlayerState(currentPlayerId));
       return;
     }
 
@@ -311,6 +354,63 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // ── 邻居帮助加速孵化 ──
+    if (type === 'BOOST_EGG') {
+      const { targetId, eggId } = payload;
+      const result = boostEgg(currentPlayerId, targetId, eggId);
+      if (result.error) {
+        const msgs = {
+          not_neighbor:    '你们还不是邻居',
+          boost_limit:     `今日助力次数已用完（每日最多3次）`,
+          egg_not_found:   '蛋不存在',
+          cant_boost_self: '不能为自己加速',
+        };
+        return send(ws, 'ERROR', { code: result.error, msg: msgs[result.error] || result.error });
+      }
+      progressTask(currentPlayerId, 'boost');
+      send(ws, 'BOOST_DONE', { boosterExp: result.boosterExp, state: buildPlayerState(currentPlayerId) });
+      // 通知被助力方
+      sendToPlayer(targetId, 'EGG_BOOSTED', {
+        eggId, newHatchAt: result.newHatchAt,
+        booster: { username: getPlayerById(currentPlayerId).username },
+        state: buildPlayerState(targetId),
+      });
+      return;
+    }
+
+    // ── 温泉池升级 ──
+    if (type === 'UPGRADE_SPA') {
+      const result = upgradeSpa(currentPlayerId);
+      if (result.error) {
+        const msgs = { max_level: '温泉池已达最高等级', not_enough_coins: `金币不足！` };
+        return send(ws, 'ERROR', { code: result.error, msg: msgs[result.error] || result.error });
+      }
+      send(ws, 'UPGRADE_OK', { type: 'spa', newLevel: result.newLevel, state: buildPlayerState(currentPlayerId) });
+      return;
+    }
+
+    // ── 购买额外守卫槽 ──
+    if (type === 'BUY_GUARD_SLOT') {
+      const result = buyGuardSlot(currentPlayerId);
+      if (result.error) {
+        const msgs = { max_slots: '守卫槽已达上限', not_enough_coins: `需要 ${EXTRA_GUARD_COST} 🪙` };
+        return send(ws, 'ERROR', { code: result.error, msg: msgs[result.error] || result.error });
+      }
+      send(ws, 'UPGRADE_OK', { type: 'guard_slot', state: buildPlayerState(currentPlayerId) });
+      return;
+    }
+
+    // ── 购买额外蛋槽 ──
+    if (type === 'BUY_EGG_SLOT') {
+      const result = buyEggSlot(currentPlayerId);
+      if (result.error) {
+        const msgs = { max_slots: '蛋槽已达上限（6个）', not_enough_coins: `需要 ${EXTRA_EGG_SLOT_COST} 🪙` };
+        return send(ws, 'ERROR', { code: result.error, msg: msgs[result.error] || result.error });
+      }
+      send(ws, 'UPGRADE_OK', { type: 'egg_slot', state: buildPlayerState(currentPlayerId) });
+      return;
+    }
+
     // ── 获取当前完整状态 ──
     if (type === 'GET_STATE') {
       send(ws, 'STATE_UPDATE', buildPlayerState(currentPlayerId));
@@ -324,7 +424,7 @@ wss.on('connection', (ws) => {
 });
 
 // ============================================================
-// HTTP 路由（仅提供前端静态文件）
+// HTTP 路由（静态文件）
 // ============================================================
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
@@ -335,5 +435,5 @@ app.get('*', (req, res) => {
 // ============================================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🌸 温泉宠物镇服务器已启动 → http://localhost:${PORT}`);
+  console.log(`🌸 温泉宠物镇服务器 v2 已启动 → http://localhost:${PORT}`);
 });

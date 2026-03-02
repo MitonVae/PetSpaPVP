@@ -1,318 +1,310 @@
 // ============================================================
-// game.js — 客户端 WebSocket 逻辑 + UI 控制器
+// game.js — 客户端完整控制器（重写版）
 // ============================================================
 
-// ── WebSocket 连接 ──
+// ── 全局状态 ──
 const WS_URL = location.protocol === 'https:'
-  ? `wss://${location.host}`
-  : `ws://${location.host}`;
+  ? `wss://${location.host}` : `ws://${location.host}`;
 
 let ws = null;
-let state = null;        // 当前玩家完整状态
-let visitView = null;    // 当前访问的他人视图
+let state = null;
+let visitView = null;
 let selectedEggId = null;
 let selectedStrategy = null;
 let selectedAttackerPetId = null;
-let prevLevel = 1;       // 升级检测用
+let prevLevel = 1;
+let guardSlotTarget = -1;
+let petActionTarget = null;
 
-// ============================================================
-// WebSocket 初始化
-// ============================================================
+// ── WebSocket ──
 function connectWS() {
   ws = new WebSocket(WS_URL);
-
-  ws.onopen = () => {
-    console.log('✅ WebSocket 已连接');
-    // 自动重连间隔重置
-    reconnectDelay = 1000;
-  };
-
+  ws.onopen  = () => console.log('✅ WS connected');
+  ws.onclose = () => setTimeout(connectWS, 3000);
   ws.onmessage = (ev) => {
-    const { type, payload } = JSON.parse(ev.data);
-    handleServerMsg(type, payload);
-  };
-
-  ws.onclose = () => {
-    console.warn('⚠️ WebSocket 断开，3秒后重连');
-    setTimeout(connectWS, 3000);
+    try { const { type, payload } = JSON.parse(ev.data); handleServerMsg(type, payload); }
+    catch(e) { console.error('WS parse error', e); }
   };
 }
-
-let reconnectDelay = 1000;
 
 function send(type, payload = {}) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type, payload }));
+}
+
+// ── Toast ──
+function showToast(msg, cls = 'info', ms = 3000) {
+  const c = document.getElementById('toast-container');
+  if (!c) return;
+  const t = document.createElement('div');
+  t.className = `toast ${cls}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, ms);
+}
+function showError(msg)   { showToast('❌ ' + msg, 'error', 4000); }
+function showSuccess(msg) { showToast('✅ ' + msg, 'success'); }
+function showInfo(msg)    { showToast(msg, 'info'); }
+
+// ── 全服通知条 ──
+let _noticeT = null;
+function showGlobalNotice(msg) {
+  const el = document.getElementById('global-notice');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('active');
+  clearTimeout(_noticeT);
+  _noticeT = setTimeout(() => el.classList.remove('active'), 4000);
+}
+
+// ── 弹窗 ──
+function showModal(title, desc, ok) {
+  const m = document.getElementById('result-modal');
+  if (!m) return;
+  m.querySelector('.modal-title').textContent = title;
+  m.querySelector('.modal-title').className = 'modal-title ' + (ok ? 'success' : 'fail');
+  m.querySelector('.modal-desc').textContent = desc;
+  m.classList.add('active');
+}
+
+// ── 工具函数 ──
+function formatTime(secs) {
+  if (secs <= 0) return '00:00';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h${String(m).padStart(2,'0')}m`;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function rarityLabel(r)    { return {legend:'传说',rare:'稀有',common:'普通'}[r] || r; }
+function petClassLabel(c)  { return {fighter:'战斗型',skill:'技能型'}[c] || c; }
+function petTypeLabel(t)   {
+  return {bear:'小熊',fox:'狐狸',bunny:'兔子',cat:'猫咪',dragon:'小龙',
+          wolf:'灰狼',turtle:'神龟',phoenix:'凤凰'}[t] || t;
+}
+function strategyLabel(s)  { return {fight:'强攻',sneak:'潜行',bribe:'贿赂'}[s] || s; }
+function skillLabel(sk)    {
+  return {mud:'泥潭减速',thorn:'荆棘反伤',sleep:'催眠术',
+          heal:'温泉治愈',shield:'铁甲护盾'}[sk] || sk;
+}
+
+// ── Tab 切换 ──
+function switchTab(tabId) {
+  document.querySelectorAll('.nav-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.panel').forEach(p =>
+    p.classList.toggle('active', p.id === tabId));
+  if (tabId === 'tab-rank')      send('GET_LEADERBOARD');
+  if (tabId === 'tab-neighbors') send('GET_NEIGHBORS');
+  if (tabId === 'tab-home')      renderMyScene();
+}
+
+// ── 升级检测 ──
+function checkLevelUp(ns) {
+  if (!ns || !ns.player) return;
+  if (ns.player.level > prevLevel) {
+    prevLevel = ns.player.level;
+    const d = document.getElementById('levelup-desc');
+    if (d) d.textContent = `恭喜升到 Lv.${prevLevel}！继续孵蛋·偷蛋获得更多经验！`;
+    const m = document.getElementById('levelup-modal');
+    if (m) m.classList.add('active');
   }
 }
 
-// ============================================================
-// 服务端消息处理（基础路由，由下方完整版覆盖）
-// ============================================================
-function _baseMsgHandler(type, payload) {
-  switch (type) {
-    case 'LOGGED_IN':
-      onLoggedIn(payload);
-      break;
-
-    case 'BEEN_STOLEN':
-      state = payload.defenderState;
-      renderMyScene();
-      if (payload.success) {
-        showGlobalNotice(`⚠️ ${payload.attacker.username} 偷走了你的蛋！`);
-      } else {
-        showGlobalNotice(`🛡️ 守卫成功阻止了 ${payload.attacker.username} 的偷窃！`);
-      }
-      break;
-
-    case 'LEGEND_HATCH':
-      showGlobalNotice(`✨ 全服广播：${payload.owner} 孵出了传说宠物 ${petTypeLabel(payload.petType)}！快去偷蛋！`);
-      break;
-
-    case 'VISITOR_VIEW':
-      visitView = payload;
-      renderVisitView();
-      updateStealRates();
-      break;
-
-    case 'SEARCH_RESULT':
-      onSearchResult(payload);
-      break;
-
-    case 'LEADERBOARD':
-      renderLeaderboard(payload.list);
-      renderHotNeighborList(payload.list);
-      break;
-
-    case 'ERROR':
-      showError(payload.msg || payload.code);
-      break;
-
-    default:
-      console.log('[server]', type, payload);
-  }
-}
-
-
-// ============================================================
-// 登录/注册界面
-// ============================================================
-let loginMode = 'login'; // 'login' | 'register'
-
-document.getElementById('login-submit').addEventListener('click', () => {
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value.trim();
-  if (!username || !password) return showLoginError('请填写用户名和密码');
-  send(loginMode === 'login' ? 'LOGIN' : 'REGISTER', { username, password });
-});
-
-document.getElementById('login-switch').addEventListener('click', () => {
-  loginMode = loginMode === 'login' ? 'register' : 'login';
-  document.getElementById('login-title').textContent = loginMode === 'login' ? '登录' : '注册';
-  document.getElementById('login-submit').textContent = loginMode === 'login' ? '🌸 进入游戏' : '🥚 创建账号';
-  document.getElementById('login-switch').textContent =
-    loginMode === 'login' ? '还没有账号？点此注册' : '已有账号？点此登录';
-});
-
-function showLoginError(msg) {
-  document.getElementById('login-err').textContent = msg;
-}
-
-function onLoggedIn(payload) {
-  state = payload;
-  prevLevel = payload.player.level;
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('game-screen').style.display = 'block';
-  updateTopbar();
-  renderMyScene();
-  // 启动本地定时器刷新倒计时
-  startCountdownLoop();
-  // 初始化温泉背景
-  const bgCanvas = document.getElementById('spa-bg-canvas');
-  if (bgCanvas) PixelRender.drawSpaBackground(bgCanvas);
-  // 加载邻居列表
-  send('GET_NEIGHBORS');
-}
-
-// ============================================================
-// 顶栏更新（含EXP进度条）
-// ============================================================
+// ── 顶栏更新 ──
 function updateTopbar() {
   if (!state) return;
   const p = state.player;
-  document.getElementById('tb-name').textContent = p.username;
-  document.getElementById('tb-level').textContent = `Lv.${p.level}`;
-  document.getElementById('tb-coins').textContent = `🪙 ${p.coins}`;
+  const $ = id => document.getElementById(id);
+  $('tb-username').textContent = p.username;
+  $('tb-level').textContent    = p.level;
+  $('tb-coins').textContent    = p.coins;
   const needed = p.level * 100;
-  const pct = Math.min(100, Math.floor((p.exp / needed) * 100));
-  // 支持新版EXP进度条
-  const expLabel = document.getElementById('tb-exp-label');
-  const expFill  = document.getElementById('tb-exp-fill');
-  const expOld   = document.getElementById('tb-exp');
-  if (expLabel) expLabel.textContent = `EXP ${p.exp}/${needed}`;
-  if (expFill)  expFill.style.width = pct + '%';
-  if (expOld)   expOld.textContent  = `EXP ${p.exp}/${needed}`;
+  const pct = Math.min(100, Math.floor(p.exp / needed * 100));
+  $('tb-exp-text').textContent = `${p.exp}/${needed}`;
+  $('tb-exp-bar').style.width  = pct + '%';
+  const b = $('spa-level-tag');
+  if (b) b.textContent = `温泉 Lv.${state.spa_level || 1}`;
+}
+
+// ── 倒计时循环 ──
+function startCountdownLoop() {
+  setInterval(() => {
+    document.querySelectorAll('.egg-timer[data-hatch-at]').forEach(el => {
+      const remain = parseInt(el.dataset.hatchAt) - Math.floor(Date.now() / 1000);
+      const tl = el.querySelector('.time-left');
+      if (remain <= 0) el.innerHTML = '<span class="ready-pulse">✨ 点击孵化！</span>';
+      else if (tl) tl.textContent = formatTime(remain);
+    });
+  }, 1000);
 }
 
 // ============================================================
-// 升级检测与弹窗
+// Part 2 — 登录 / 主场景 / 蛋池 / 守卫 / 宠物 / 任务渲染
 // ============================================================
-function checkLevelUp(newState) {
-  if (!newState || !newState.player) return;
-  const newLv = newState.player.level;
-  if (newLv > prevLevel) {
-    prevLevel = newLv;
-    showLevelUpModal(newLv);
-  }
+
+// ── 登录界面 ──
+document.getElementById('btn-login').addEventListener('click', () => {
+  const u = document.getElementById('login-username').value.trim();
+  const p = document.getElementById('login-password').value.trim();
+  if (!u || !p) { document.getElementById('login-err').textContent = '请填写用户名和密码'; return; }
+  send('LOGIN', { username: u, password: p });
+});
+
+document.getElementById('btn-register').addEventListener('click', () => {
+  const u = document.getElementById('reg-username').value.trim();
+  const p = document.getElementById('reg-password').value.trim();
+  if (!u || !p) { document.getElementById('reg-err').textContent = '请填写用户名和密码'; return; }
+  if (u.length < 2) { document.getElementById('reg-err').textContent = '用户名至少2位'; return; }
+  send('REGISTER', { username: u, password: p });
+});
+
+document.getElementById('go-register').addEventListener('click', () => {
+  document.getElementById('login-box').style.display    = 'none';
+  document.getElementById('register-box').style.display = 'block';
+});
+document.getElementById('go-login').addEventListener('click', () => {
+  document.getElementById('register-box').style.display = 'none';
+  document.getElementById('login-box').style.display    = 'block';
+});
+
+// ── 登录成功 ──
+function onLoggedIn(payload) {
+  state     = payload;
+  prevLevel = payload.player.level;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('game-screen').style.display  = 'block';
+  updateTopbar();
+  renderMyScene();
+  renderFriendRequests();
+  startCountdownLoop();
+  send('GET_NEIGHBORS');
 }
 
-function showLevelUpModal(level) {
-  const slotMsg = { 3:'🎁 解锁第3个蛋池槽位！', 5:'🎁 解锁第4个蛋池槽位！', 10:'🎁 解锁第5个蛋池槽位（上限）！' };
-  const extra = slotMsg[level] ? '\n' + slotMsg[level] : '';
-  const descEl = document.getElementById('levelup-desc');
-  const modal  = document.getElementById('levelup-modal');
-  if (descEl) descEl.textContent = `恭喜升到 Lv.${level}！${extra}\n继续孵蛋·偷蛋·完成任务获得更多经验！`;
-  if (modal)  modal.classList.add('active');
-  else        showModal(`🎉 升级了！ Lv.${level}`, `升到 Lv.${level}！${extra}`, true);
-}
-
-const levelupCloseBtn = document.getElementById('levelup-close');
-if (levelupCloseBtn) {
-  levelupCloseBtn.addEventListener('click', () => {
-    const m = document.getElementById('levelup-modal');
-    if (m) m.classList.remove('active');
-  });
-}
-
-// ============================================================
-// 主场景渲染（我的蛋池）
-// ============================================================
+// ── 主场景 ──
 function renderMyScene() {
+  if (!state) return;
   updateTopbar();
   renderEggPool();
   renderGuardSlots();
   renderPetList();
-  renderTrapList();
   renderTaskList();
 }
 
 // ── 蛋池 ──
 function renderEggPool() {
   const pool = document.getElementById('egg-pool');
+  const info = document.getElementById('egg-slot-info');
   pool.innerHTML = '';
-  const maxSlots = state.maxSlots || 2;
-  const eggs = state.eggs || [];
+  const maxSlots = state.egg_slots || 2;
+  const eggs     = state.eggs || [];
+  if (info) info.textContent = `${eggs.length} / ${maxSlots} 槽`;
 
   for (let slot = 0; slot < maxSlots; slot++) {
     const egg = eggs.find(e => e.slot === slot);
     const div = document.createElement('div');
-
     if (egg) {
-      const now = Math.floor(Date.now() / 1000);
+      const now   = Math.floor(Date.now() / 1000);
       const total = egg.hatch_at - egg.placed_at;
-      const elapsed = Math.min(now - egg.placed_at, total);
-      const progress = elapsed / total;
-      const isReady = now >= egg.hatch_at;
+      const prog  = Math.min(1, (now - egg.placed_at) / total);
+      const ready = now >= egg.hatch_at;
+      div.className = 'egg-slot' + (ready ? ' ready' : '');
 
-      div.className = 'egg-slot';
-      // 稀有度标签
       const badge = document.createElement('div');
       badge.className = `rarity-badge ${egg.rarity}`;
       badge.textContent = rarityLabel(egg.rarity);
       div.appendChild(badge);
 
-      // Canvas 蛋
       const canvas = document.createElement('canvas');
-      canvas.className = 'egg-canvas';
-      PixelRender.drawEgg(canvas, egg.rarity, progress);
+      canvas.width = canvas.height = 40;
+      if (window.PixelRender) PixelRender.drawEgg(canvas, egg.rarity, prog);
       div.appendChild(canvas);
 
-      // 倒计时
+      // 蛋来源角标
+      if (egg.source) {
+        const src = document.createElement('div');
+        src.className = 'egg-source-tag';
+        src.textContent = egg.source === 'shop' ? '🛒 商店' : egg.source === 'stolen' ? '⚔ 偷来' : '🌸 自产';
+        div.appendChild(src);
+      }
+
       const timer = document.createElement('div');
       timer.className = 'egg-timer';
-      timer.dataset.eggId = egg.id;
       timer.dataset.hatchAt = egg.hatch_at;
-      if (isReady) {
-        timer.innerHTML = `<div class="ready">✨ 点击孵化！</div>`;
+      if (ready) {
+        timer.innerHTML = '<span class="ready-pulse">✨ 点击孵化！</span>';
         div.addEventListener('click', () => send('COLLECT_EGG', { eggId: egg.id }));
       } else {
-        timer.innerHTML = `<div class="time-left">${formatTime(egg.hatch_at - now)}</div><div>孵化中</div>`;
-        div.addEventListener('click', () => {
-          showGlobalNotice('蛋还没孵好！等等呀~');
-        });
+        timer.innerHTML = `<span class="time-left">${formatTime(egg.hatch_at - now)}</span><br><small>孵化中</small>`;
+        div.addEventListener('click', () => showInfo('🥚 蛋还没孵好，再等等呀～'));
       }
       div.appendChild(timer);
     } else {
       div.className = 'egg-slot empty';
-      div.addEventListener('click', () => {
-        if (state.player.coins < 10) return showGlobalNotice('金币不足 10！');
-        send('PLACE_EGG', { slot });
-      });
+      div.innerHTML = '<div class="empty-slot-hint">空槽<br><small>前往商店购蛋放入</small></div>';
     }
     pool.appendChild(div);
   }
 }
 
-// ── 守卫槽（显示当前守卫宠物） ──
+// ── 守卫槽 ──
 function renderGuardSlots() {
   const container = document.getElementById('guard-slots');
+  const info      = document.getElementById('guard-slot-info');
   container.innerHTML = '';
-  const guards = (state.pets || []).filter(p => p.role === 'guard');
+  const maxGuard = state.guard_slots || 2;
+  const guards   = (state.pets || []).filter(p => p.role === 'guard');
+  if (info) info.textContent = `${guards.length} / ${maxGuard} 槽`;
 
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < maxGuard; i++) {
     const guard = guards.find(g => g.guard_slot === i);
     const div = document.createElement('div');
-    div.className = 'guard-slot' + (guard ? '' : ' empty');
+    div.className = 'guard-slot' + (guard ? ' filled' : ' empty');
 
-    const label = document.createElement('div');
-    label.className = 'slot-label';
-    label.textContent = `守卫槽 ${i + 1}`;
-    div.appendChild(label);
+    const lbl = document.createElement('div');
+    lbl.className = 'slot-label';
+    lbl.textContent = `守卫 ${i + 1}`;
+    div.appendChild(lbl);
 
     if (guard) {
       const canvas = document.createElement('canvas');
-      PixelRender.drawPet(canvas, guard.type, guard.rarity);
+      canvas.width = canvas.height = 40;
+      if (window.PixelRender) PixelRender.drawPet(canvas, guard.type, guard.rarity, guard.petClass || 'fighter');
       div.appendChild(canvas);
-      const name = document.createElement('div');
-      name.style.cssText = 'font-size:6px;margin-top:3px;text-align:center;';
-      name.textContent = guard.name;
-      div.appendChild(name);
-      div.addEventListener('click', () => {
-        if (confirm(`撤回守卫 ${guard.name}？`)) send('UNGUARD', { petId: guard.id });
-      });
+
+      const nm = document.createElement('div');
+      nm.style.cssText = 'font-size:8px;margin-top:3px;text-align:center;';
+      nm.textContent = guard.name;
+      div.appendChild(nm);
+
+      // 技能标签
+      if (guard.pet_class === 'skill' && guard.skill) {
+        const sk = document.createElement('div');
+        sk.className = 'skill-tag';
+        sk.textContent = skillLabel(guard.skill);
+        div.appendChild(sk);
+      }
+
+      div.addEventListener('click', () => openPetActionModal(guard));
     } else {
       const txt = document.createElement('div');
-      txt.style.cssText = 'font-size:7px;opacity:0.5;margin-top:8px;';
-      txt.textContent = '空置';
+      txt.style.cssText = 'font-size:8px;opacity:0.5;margin-top:8px;text-align:center;';
+      txt.textContent = '点击选择守卫';
       div.appendChild(txt);
+      div.addEventListener('click', () => openGuardSelectModal(i));
     }
-
-    // 陷阱展示
-    const trap = (state.traps || []).find(t => t.slot === i && !t.triggered);
-    if (trap) {
-      const tc = document.createElement('canvas');
-      PixelRender.drawTrap(tc, trap.type);
-      tc.style.marginTop = '4px';
-      div.appendChild(tc);
-      const tl = document.createElement('div');
-      tl.style.cssText = 'font-size:6px;color:#5C4A6B;text-align:center;';
-      tl.textContent = trapLabel(trap.type);
-      div.appendChild(tl);
-    }
-
     container.appendChild(div);
   }
 }
 
-// ── 宠物列表（含经验条）──
+// ── 宠物列表 ──
 function renderPetList() {
   const list = document.getElementById('pet-list');
+  const hint = document.getElementById('pet-empty-hint');
   list.innerHTML = '';
   const pets = state.pets || [];
-  if (pets.length === 0) {
-    list.innerHTML = '<div style="font-size:8px;opacity:0.5;">还没有宠物，快去孵蛋吧！</div>';
-    return;
-  }
+  if (hint) hint.style.display = pets.length === 0 ? 'block' : 'none';
   pets.forEach(pet => {
     const card = document.createElement('div');
     card.className = 'pet-card' + (pet.role === 'guard' ? ' guard-active' : '');
@@ -325,491 +317,229 @@ function renderPetList() {
     }
 
     const canvas = document.createElement('canvas');
-    PixelRender.drawPet(canvas, pet.type, pet.rarity);
+    canvas.width = canvas.height = 40;
+    if (window.PixelRender) PixelRender.drawPet(canvas, pet.type, pet.rarity, pet.petClass || 'fighter');
     card.appendChild(canvas);
 
     const needed = pet.level * 50;
-    const expPct  = Math.min(100, Math.floor(((pet.exp || 0) / needed) * 100));
+    const expPct = Math.min(100, Math.floor((pet.exp || 0) / needed * 100));
+
+    const cls  = petClassLabel(pet.pet_class || 'fighter');
+    const skills = pet.pet_class === 'skill' && pet.skill
+      ? `<span class="skill-badge">${skillLabel(pet.skill)}</span>` : '';
 
     const info = document.createElement('div');
-    info.style.cssText = 'width:100%;';
+    info.className = 'pet-info';
     info.innerHTML = `
       <div class="pet-name">${pet.name}</div>
-      <div class="pet-level">Lv.${pet.level}</div>
-      <div class="pet-rarity">${rarityLabel(pet.rarity)}</div>
-      <div class="pet-stats">
-        <span>⚔️${pet.atk}</span>
-        <span>🛡️${pet.def}</span>
-        <span>💨${pet.spd}</span>
+      <div style="font-size:7px;display:flex;gap:4px;flex-wrap:wrap;margin-bottom:2px;">
+        <span class="rarity-badge ${pet.rarity}">${rarityLabel(pet.rarity)}</span>
+        <span class="class-badge ${pet.pet_class||'fighter'}">${cls}</span>
+        ${skills}
       </div>
-      <div style="font-size:6px;opacity:0.7;margin-top:3px;">EXP ${pet.exp||0}/${needed}</div>
+      <div class="pet-stats">⚔${pet.atk} 🛡${pet.def} 💨${pet.spd}</div>
+      <div style="font-size:6px;opacity:0.6;">EXP ${pet.exp||0}/${needed}</div>
       <div class="pet-exp-bar"><div class="fill" style="width:${expPct}%"></div></div>
     `;
     card.appendChild(info);
-
-    // 点击管理守卫
     card.addEventListener('click', () => openPetActionModal(pet));
     list.appendChild(card);
   });
 }
 
-// 宠物管理弹窗（替代 prompt）
-let petActionTarget = null;
-function openPetActionModal(pet) {
-  petActionTarget = pet;
-  const modal = document.getElementById('pet-action-modal');
-  if (!modal) {
-    // 降级处理
-    openPetActions(pet);
-    return;
-  }
-  document.getElementById('pet-action-name').textContent = `${pet.name} · ${rarityLabel(pet.rarity)} Lv.${pet.level}`;
-  const guardBtn = document.getElementById('pet-action-guard');
-  if (pet.role === 'guard') {
-    guardBtn.textContent = '🔓 撤回守卫';
-    guardBtn.onclick = () => { send('UNGUARD', { petId: pet.id }); modal.classList.remove('active'); };
-  } else {
-    guardBtn.textContent = '🛡️ 设为守卫';
-    guardBtn.onclick = () => {
-      const freeSlot = [0,1].find(i => !(state.pets||[]).some(p => p.role==='guard' && p.guard_slot===i));
-      if (freeSlot === undefined) { showGlobalNotice('守卫槽已满！先撤回一只再试'); return; }
-      send('SET_GUARD', { petId: pet.id, guardSlot: freeSlot });
-      modal.classList.remove('active');
-    };
-  }
-  modal.classList.add('active');
-}
-
-function openPetActions(pet) {
-  if (pet.role === 'guard') {
-    if (confirm(`撤回守卫 ${pet.name}？`)) send('UNGUARD', { petId: pet.id });
-    return;
-  }
-  const slot = prompt(`将 ${pet.name} 设为守卫槽 1 还是 2？（输入 1 或 2）`);
-  if (slot === '1') send('SET_GUARD', { petId: pet.id, guardSlot: 0 });
-  else if (slot === '2') send('SET_GUARD', { petId: pet.id, guardSlot: 1 });
-}
-
-// 宠物弹窗关闭
-const petActionClose = document.getElementById('pet-action-close');
-if (petActionClose) petActionClose.addEventListener('click', () => {
-  document.getElementById('pet-action-modal').classList.remove('active');
-});
-
-// ── 陷阱购买区 ──
-function renderTrapList() {
-  // 该区域已在HTML静态声明，只需绑定按钮事件
-}
-
-// ── 任务列表（含奖励显示）──
+// ── 任务列表 ──
+const TASK_TEMPLATES = [
+  { type:'signin',  desc:'每日签到',       target:1, rc:20, re:5  },
+  { type:'steal',   desc:'偷窃成功 2 次',  target:2, rc:30, re:20 },
+  { type:'defend',  desc:'成功防御 1 次',  target:1, rc:20, re:15 },
+  { type:'hatch',   desc:'孵化 1 只宠物',  target:1, rc:25, re:10 },
+];
 function renderTaskList() {
-  const list = document.getElementById('task-list-container');
+  const list = document.getElementById('task-list');
   if (!list) return;
   list.innerHTML = '';
   const tasks = state.tasks || [];
-  const templates = [
-    { type: 'signin',  desc: '每日签到',      target: 1, reward_coins: 15, reward_exp: 5  },
-    { type: 'steal',   desc: '偷窃成功 2 次', target: 2, reward_coins: 30, reward_exp: 20 },
-    { type: 'defend',  desc: '成功防御 1 次', target: 1, reward_coins: 20, reward_exp: 15 },
-    { type: 'hatch',   desc: '孵化 1 只宠物', target: 1, reward_coins: 25, reward_exp: 10 },
-  ];
-  templates.forEach(tmpl => {
+  TASK_TEMPLATES.forEach(tmpl => {
     const task = tasks.find(t => t.task_type === tmpl.type);
-    const prog  = task ? task.progress : 0;
-    const done  = task ? task.completed : false;
-    const target = tmpl.target;
-    const pct = Math.min(100, Math.floor((prog / target) * 100));
-
+    const prog = task ? task.progress : 0;
+    const done = task ? task.completed : false;
+    const pct  = Math.min(100, Math.floor(prog / tmpl.target * 100));
     const item = document.createElement('div');
     item.className = 'task-item' + (done ? ' done' : '');
     item.innerHTML = `
       <div class="task-check">${done ? '✅' : '⭕'}</div>
-      <div class="task-desc">
-        <span>${tmpl.desc}</span>
+      <div class="task-body">
+        <div class="task-desc">${tmpl.desc}</div>
         <div class="task-prog-bar"><div class="fill" style="width:${pct}%"></div></div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:52px;">
-        <div class="task-prog">${prog}/${target}</div>
-        <div class="task-reward">+${tmpl.reward_coins}🪙 +${tmpl.reward_exp}EXP</div>
+      <div class="task-right">
+        <div class="task-prog">${prog}/${tmpl.target}</div>
+        <div class="task-reward">+${tmpl.rc}🪙 +${tmpl.re}EXP</div>
       </div>
     `;
     list.appendChild(item);
   });
 }
 
-// ============================================================
-// 访问他人（偷窃面板）
-// ============================================================
-function renderVisitView() {
-  if (!visitView) return;
-  const vv = document.getElementById('visit-view');
-  vv.style.display = 'block';
-
-  const p = visitView.player;
-  document.getElementById('visit-target-name').textContent = `${p.username}  Lv.${p.level}`;
-  document.getElementById('visit-target-coins').textContent = `🪙 ${p.coins}`;
-
-  // 守卫展示
-  const guardInfo = document.getElementById('visit-guards');
-  guardInfo.innerHTML = '';
-  if (visitView.guards.length === 0) {
-    guardInfo.innerHTML = '<span style="font-size:7px;opacity:0.6;">无守卫</span>';
-  } else {
-    visitView.guards.forEach(g => {
-      const canvas = document.createElement('canvas');
-      PixelRender.drawPet(canvas, g.type, g.rarity);
-      canvas.title = `${g.name} DEF:${g.def}`;
-      guardInfo.appendChild(canvas);
-    });
-  }
-
-  // 陷阱提示
-  const trapInfo = document.getElementById('visit-traps');
-  trapInfo.innerHTML = visitView.traps.length > 0
-    ? `⚠️ 检测到 ${visitView.traps.length} 个陷阱`
-    : '无陷阱';
-
-  // 蛋列表
-  const eggsContainer = document.getElementById('visit-target-eggs');
-  eggsContainer.innerHTML = '';
-  if (visitView.eggs.length === 0) {
-    eggsContainer.innerHTML = '<div style="font-size:8px;opacity:0.6;">没有蛋可偷</div>';
-  } else {
-    visitView.eggs.forEach(egg => {
-      const now = Math.floor(Date.now() / 1000);
-      const total = egg.hatch_at - egg.placed_at;
-      const progress = Math.min((now - egg.placed_at) / total, 1);
-
-      const card = document.createElement('div');
-      card.className = 'visit-egg-card' + (selectedEggId === egg.id ? ' selected' : '');
-
-      const canvas = document.createElement('canvas');
-      PixelRender.drawEgg(canvas, egg.rarity, progress);
-      card.appendChild(canvas);
-
-      const info = document.createElement('div');
-      info.style.cssText = 'font-size:7px;text-align:center;';
-      info.textContent = rarityLabel(egg.rarity);
-      card.appendChild(info);
-
-      const prog = document.createElement('div');
-      prog.style.cssText = 'font-size:6px;color:#7DAF8C;';
-      prog.textContent = `进度${Math.floor(progress * 100)}%`;
-      card.appendChild(prog);
-
-      card.addEventListener('click', () => {
-        selectedEggId = egg.id;
-        renderVisitView(); // 重绘选中状态
-        document.getElementById('strategy-panel').classList.add('active');
-        renderAttackerPetSelect();
-      });
-      eggsContainer.appendChild(card);
-    });
-  }
-}
-
-function renderAttackerPetSelect() {
-  const container = document.getElementById('attacker-pet-select');
-  container.innerHTML = '<div style="font-size:7px;margin-bottom:4px;width:100%;">选择出击宠物（可不选）：</div>';
-
-  const noneOpt = document.createElement('div');
-  noneOpt.className = 'attacker-pet-opt' + (!selectedAttackerPetId ? ' selected' : '');
-  noneOpt.textContent = '不选';
-  noneOpt.addEventListener('click', () => {
-    selectedAttackerPetId = null;
-    renderAttackerPetSelect();
-  });
-  container.appendChild(noneOpt);
-
-  (state.pets || []).filter(p => p.role !== 'guard').forEach(pet => {
-    const opt = document.createElement('div');
-    opt.className = 'attacker-pet-opt' + (selectedAttackerPetId === pet.id ? ' selected' : '');
-    opt.innerHTML = `${pet.name}<br><span style="opacity:0.7">ATK${pet.atk} SPD${pet.spd}</span>`;
-    opt.addEventListener('click', () => {
-      selectedAttackerPetId = pet.id;
-      renderAttackerPetSelect();
-    });
-    container.appendChild(opt);
-  });
-}
-
-// 策略按钮
-document.querySelectorAll('.strategy-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedStrategy = btn.dataset.strategy;
-  });
-});
-
-document.getElementById('confirm-steal').addEventListener('click', () => {
-  if (!selectedEggId) return showGlobalNotice('请先选择一颗蛋！');
-  if (!selectedStrategy) return showGlobalNotice('请选择偷窃策略！');
-  if (!visitView) return;
-
-  send('STEAL', {
-    targetId: visitView.player.id,
-    eggId: selectedEggId,
-    strategy: selectedStrategy,
-    attackerPetId: selectedAttackerPetId,
-  });
-
-  // 重置选择
-  selectedEggId = null;
-  selectedStrategy = null;
-  selectedAttackerPetId = null;
-  document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('selected'));
-  document.getElementById('strategy-panel').classList.remove('active');
-});
-
-// ============================================================
-// 排行榜
-// ============================================================
-function renderLeaderboard(list) {
-  const tbody = document.getElementById('leaderboard-body');
-  tbody.innerHTML = '';
-  list.forEach((p, i) => {
-    const tr = document.createElement('tr');
-    if (i === 0) tr.className = 'rank-1';
-    tr.innerHTML = `
-      <td>${i + 1}</td>
-      <td>${i < 3 ? ['🥇','🥈','🥉'][i] : ''} ${p.username}</td>
-      <td>Lv.${p.level}</td>
-      <td>🪙 ${p.coins}</td>
-      <td><button class="btn small" onclick="visitPlayer('${p.id}')">去看看</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-// ============================================================
-// 搜索玩家
-// ============================================================
-document.getElementById('search-btn').addEventListener('click', () => {
-  const name = document.getElementById('search-input').value.trim();
-  if (!name) return;
-  send('SEARCH_PLAYER', { username: name });
-});
-
-document.getElementById('search-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('search-btn').click();
-});
-
-function onSearchResult(player) {
-  const resultDiv = document.getElementById('search-result');
-  resultDiv.innerHTML = `
-    <div class="px-border" style="padding:10px;background:var(--bg);display:inline-flex;align-items:center;gap:14px;">
+// ── 友邻申请 ──
+function renderFriendRequests() {
+  const area = document.getElementById('friend-requests-area');
+  if (!area) return;
+  const reqs = state.incoming_requests || [];
+  area.innerHTML = '';
+  reqs.forEach(req => {
+    const div = document.createElement('div');
+    div.className = 'friend-req-card';
+    div.innerHTML = `
+      <span>👋 <b>${req.from_username}</b> 想成为你的邻居</span>
       <div>
-        <div style="font-size:9px;">${player.username}</div>
-        <div style="font-size:7px;opacity:0.7;">Lv.${player.level} · 🪙${player.coins}</div>
+        <button class="btn small" onclick="acceptFriend('${req.from_id}')">✓ 同意</button>
+        <button class="btn small outline" onclick="rejectFriend('${req.from_id}')">✕ 拒绝</button>
       </div>
-      <button class="btn small" onclick="visitPlayer('${player.id}')">前去偷蛋</button>
-    </div>
-  `;
-}
-
-function visitPlayer(targetId) {
-  send('VIEW_PLAYER', { targetId });
-  switchTab('steal');
-}
-window.visitPlayer = visitPlayer;
-
-// ============================================================
-// 陷阱购买
-// ============================================================
-document.querySelectorAll('.trap-item').forEach(item => {
-  item.addEventListener('click', () => {
-    const type = item.dataset.trapType;
-    const slot = parseInt(item.dataset.slot ?? 0);
-    // 弹出槽位选择
-    const s = prompt('放到守卫槽 1 还是 2？（输入 1 或 2）');
-    if (s === '1') send('PLACE_TRAP', { slot: 0, trapType: type });
-    else if (s === '2') send('PLACE_TRAP', { slot: 1, trapType: type });
-  });
-});
-
-// ============================================================
-// 每日签到
-// ============================================================
-document.getElementById('signin-btn').addEventListener('click', () => {
-  send('DAILY_SIGNIN');
-});
-
-// ============================================================
-// Tab 导航
-// ============================================================
-document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-});
-
-function switchTab(tabName) {
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
-  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tabName));
-
-  if (tabName === 'leaderboard') send('GET_LEADERBOARD');
-  if (tabName === 'my') renderMyScene();
-}
-
-// ============================================================
-// 倒计时循环（每秒刷新蛋池计时器）
-// ============================================================
-function startCountdownLoop() {
-  setInterval(() => {
-    document.querySelectorAll('.egg-timer').forEach(timer => {
-      const hatchAt = parseInt(timer.dataset.hatchAt);
-      const now = Math.floor(Date.now() / 1000);
-      const remain = hatchAt - now;
-      if (remain <= 0) {
-        timer.innerHTML = `<div class="ready">✨ 点击孵化！</div>`;
-      } else {
-        timer.querySelector('.time-left') && (timer.querySelector('.time-left').textContent = formatTime(remain));
-      }
-    });
-  }, 1000);
-}
-
-// ============================================================
-// 弹窗 / 全服通知
-// ============================================================
-function showModal(title, desc, isSuccess) {
-  const modal = document.getElementById('result-modal');
-  modal.querySelector('.modal-title').textContent = title;
-  modal.querySelector('.modal-title').className = 'modal-title ' + (isSuccess ? 'success' : 'fail');
-  modal.querySelector('.modal-desc').textContent = desc;
-  modal.classList.add('active');
-}
-
-document.getElementById('modal-close').addEventListener('click', () => {
-  document.getElementById('result-modal').classList.remove('active');
-});
-
-let noticeTimer = null;
-function showGlobalNotice(msg, duration = 3500) {
-  const el = document.getElementById('global-notice');
-  el.textContent = msg;
-  el.style.display = 'block';
-  clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => { el.style.display = 'none'; }, duration);
-}
-
-function showError(msg) {
-  showGlobalNotice('❌ ' + msg, 4000);
-}
-
-// ============================================================
-// 工具函数
-// ============================================================
-function formatTime(secs) {
-  if (secs <= 0) return '00:00';
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-}
-
-function rarityLabel(r) {
-  return r === 'legend' ? '传说' : r === 'rare' ? '稀有' : '普通';
-}
-
-function petTypeLabel(t) {
-  const map = { bear:'小熊', fox:'狐狸', bunny:'兔子', cat:'猫咪', dragon:'小龙' };
-  return map[t] || t;
-}
-
-function trapLabel(t) {
-  const map = { mud:'泥潭', thorn:'荆棘', sleep:'睡眠香' };
-  return map[t] || t;
-}
-
-// ============================================================
-// 偷窃成功率预测（本地计算）
-// ============================================================
-function calcStealRate(strategy) {
-  if (!visitView || !state) return '--';
-  const defenders = visitView.guards || [];
-  const attacker  = selectedAttackerPetId
-    ? (state.pets || []).find(p => p.id === selectedAttackerPetId)
-    : null;
-
-  const atkAtk = attacker ? attacker.atk : 10;
-  const atkSpd = attacker ? attacker.spd : 10;
-  const atkDef = attacker ? attacker.def : 10;
-
-  const totalDefDef = defenders.reduce((s, g) => s + (g.def || 10), 0) || 1;
-  const totalDefSpd = defenders.reduce((s, g) => s + (g.spd || 10), 0) || 1;
-  const totalDefAtk = defenders.reduce((s, g) => s + (g.atk || 10), 0) || 1;
-
-  const hasTrap = (visitView.traps || []).length > 0;
-  const trapPenalty = hasTrap ? 0.85 : 1.0;
-
-  let rate = 0;
-  if (strategy === 'charge') {
-    // 强攻：ATK vs DEF
-    rate = atkAtk / (atkAtk + totalDefDef);
-  } else if (strategy === 'sneak') {
-    // 潜行：SPD vs DEF SPD
-    rate = atkSpd / (atkSpd + totalDefSpd) * 0.9;
-  } else if (strategy === 'bribe') {
-    // 贿赂：固定70%基础 - 守卫数量影响
-    rate = 0.7 - defenders.length * 0.12;
-    rate = Math.max(0.1, rate);
-  }
-
-  rate *= trapPenalty;
-  rate = Math.min(0.92, Math.max(0.05, rate));
-  return Math.round(rate * 100) + '%';
-}
-
-function updateStealRates() {
-  const strategies = ['charge', 'sneak', 'bribe'];
-  strategies.forEach(s => {
-    const el = document.getElementById(`rate-${s}`);
-    if (el) el.textContent = `成功率 ${calcStealRate(s)}`;
+    `;
+    area.appendChild(div);
   });
 }
-
-// 每次策略按钮点击后更新成功率
-document.querySelectorAll('.strategy-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    updateStealRates();
-  });
-});
+window.acceptFriend = (id) => { send('ACCEPT_FRIEND', { fromId: id }); };
+window.rejectFriend = (id) => { send('REJECT_FRIEND', { fromId: id }); };
 
 // ============================================================
-// 孵化稀有/传说专属弹窗
+// Part 3 — 弹窗 / 宠物操作 / 守卫选择 / 偷袭 / 邻居 / 商店 / 消息路由
 // ============================================================
-function showHatchModal(pet) {
-  if (pet.rarity === 'legend') {
-    showModal(
-      `🌟✨ 传说宠物孵化！✨🌟`,
-      `极其罕见！\n孵出了 ${petTypeLabel(pet.type)}！\nATK ${pet.atk} · DEF ${pet.def} · SPD ${pet.spd}\n\n快去让它守护你的蛋池！`,
-      true
-    );
-  } else if (pet.rarity === 'rare') {
-    showModal(
-      `⭐ 稀有宠物孵化！`,
-      `运气不错！孵出了 ${petTypeLabel(pet.type)}！\nATK ${pet.atk} · DEF ${pet.def} · SPD ${pet.spd}`,
-      true
-    );
+
+// ── 宠物操作弹窗 ──
+function openPetActionModal(pet) {
+  petActionTarget = pet;
+  const m = document.getElementById('pet-action-modal');
+  if (!m) return;
+
+  // 填充宠物信息
+  const canvas = document.getElementById('pet-detail-canvas');
+  if (window.PixelRender && canvas) PixelRender.drawPet(canvas, pet.type, pet.rarity, pet.petClass || 'fighter');
+  document.getElementById('pet-detail-name').textContent = `${pet.name} · Lv.${pet.level}`;
+
+  const cls = pet.pet_class || 'fighter';
+  const badge = document.getElementById('pet-detail-class-badge');
+  badge.innerHTML = `<span class="rarity-badge ${pet.rarity}">${rarityLabel(pet.rarity)}</span>
+    <span class="class-badge ${cls}" style="margin-left:4px;">${petClassLabel(cls)}</span>`;
+
+  document.getElementById('pet-detail-stats').innerHTML =
+    `⚔ ATK ${pet.atk} &nbsp; 🛡 DEF ${pet.def} &nbsp; 💨 SPD ${pet.spd}`;
+
+  const skillDiv = document.getElementById('pet-detail-skills');
+  if (cls === 'skill' && pet.skill) {
+    skillDiv.style.display = 'block';
+    skillDiv.textContent   = `✦ 技能：${skillLabel(pet.skill)}`;
+  } else { skillDiv.style.display = 'none'; }
+
+  const guardBtn   = document.getElementById('btn-set-guard-confirm');
+  const unguardBtn = document.getElementById('btn-unguard-confirm');
+  if (pet.role === 'guard') {
+    guardBtn.style.display   = 'none';
+    unguardBtn.style.display = 'inline-block';
   } else {
-    showModal(
-      `🥚 蛋孵化了！`,
-      `孵出了 ${rarityLabel(pet.rarity)} ${petTypeLabel(pet.type)}！\nATK ${pet.atk} · DEF ${pet.def} · SPD ${pet.spd}`,
-      true
-    );
+    guardBtn.style.display   = 'inline-block';
+    unguardBtn.style.display = 'none';
   }
+  m.classList.add('active');
 }
 
-// ============================================================
-// 邻居系统
-// ============================================================
+// 守卫按钮
+document.getElementById('btn-set-guard-confirm').addEventListener('click', () => {
+  if (!petActionTarget) return;
+  // 找空槽
+  const maxG = state.guard_slots || 2;
+  const guards = (state.pets || []).filter(p => p.role === 'guard');
+  const freeSlot = [...Array(maxG).keys()].find(i => !guards.some(g => g.guard_slot === i));
+  if (freeSlot === undefined) { showInfo('守卫槽已满！请先撤回一只守卫'); return; }
+  send('SET_GUARD', { petId: petActionTarget.id, guardSlot: freeSlot });
+  document.getElementById('pet-action-modal').classList.remove('active');
+});
+
+document.getElementById('btn-unguard-confirm').addEventListener('click', () => {
+  if (!petActionTarget) return;
+  send('UNGUARD', { petId: petActionTarget.id });
+  document.getElementById('pet-action-modal').classList.remove('active');
+});
+
+// ── 守卫槽点击选择弹窗 ──
+function openGuardSelectModal(slotIdx) {
+  guardSlotTarget = slotIdx;
+  const m = document.getElementById('guard-select-modal');
+  if (!m) return;
+  const picker = document.getElementById('guard-pet-picker');
+  picker.innerHTML = '';
+  const freePets = (state.pets || []).filter(p => p.role !== 'guard');
+  if (freePets.length === 0) {
+    picker.innerHTML = '<div style="font-size:8px;opacity:0.6;">没有可用宠物（所有宠物都在守卫中）</div>';
+  } else {
+    freePets.forEach(pet => {
+      const opt = document.createElement('div');
+      opt.className = 'pet-pick-opt';
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 32;
+      if (window.PixelRender) PixelRender.drawPet(canvas, pet.type, pet.rarity, pet.petClass || 'fighter');
+      opt.appendChild(canvas);
+      const nm = document.createElement('div');
+      nm.style.cssText = 'font-size:7px;margin-top:2px;';
+      nm.textContent = pet.name;
+      opt.appendChild(nm);
+      opt.addEventListener('click', () => {
+        send('SET_GUARD', { petId: pet.id, guardSlot: slotIdx });
+        m.classList.remove('active');
+      });
+      picker.appendChild(opt);
+    });
+  }
+  m.classList.add('active');
+}
+
+// ── 模态关闭按钮通用绑定 ──
+document.querySelectorAll('.modal-close').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const m = btn.closest('[id$="-modal"]');
+    if (m) m.classList.remove('active');
+  });
+});
+
+// ── 邻居面板 ──
+document.getElementById('btn-search-neighbor').addEventListener('click', () => {
+  const name = document.getElementById('neighbor-search-input').value.trim();
+  if (!name) return;
+  send('SEARCH_PLAYER', { username: name, context: 'neighbor' });
+});
+document.getElementById('neighbor-search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-search-neighbor').click();
+});
+
+function onSearchResult(player, context) {
+  const div = context === 'neighbor'
+    ? document.getElementById('neighbor-search-result')
+    : document.getElementById('raid-search-result');
+  if (!div) return;
+  div.innerHTML = `
+    <div class="search-result-card">
+      <div>
+        <div style="font-size:10px;">${player.username}</div>
+        <div style="font-size:8px;opacity:0.7;">Lv.${player.level} · 🪙${player.coins}</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        ${context === 'neighbor'
+          ? `<button class="btn small" onclick="sendFriendReq('${player.id}')">➕ 添加邻居</button>
+             <button class="btn small outline" onclick="visitPlayer('${player.id}')">👀 参观</button>`
+          : `<button class="btn small" onclick="visitPlayer('${player.id}')">⚔ 前去偷蛋</button>`}
+      </div>
+    </div>`;
+}
+
 function renderNeighborList(list) {
   const container = document.getElementById('neighbor-list');
   if (!container) return;
-  container.innerHTML = '';
   if (!list || list.length === 0) {
-    container.innerHTML = '<div style="font-size:8px;opacity:0.5;padding:10px;">还没有邻居，去偷蛋后点击"添加邻居"吧！</div>';
+    container.innerHTML = '<div style="font-size:8px;opacity:0.5;padding:10px;">还没有邻居，快去搜索添加吧！</div>';
     return;
   }
+  container.innerHTML = '';
   list.forEach(n => {
     const card = document.createElement('div');
     card.className = 'neighbor-card';
@@ -819,75 +549,251 @@ function renderNeighborList(list) {
         <div style="font-size:7px;opacity:0.7;">Lv.${n.level} · 🪙${n.coins}</div>
       </div>
       <div style="display:flex;gap:6px;">
-        <button class="btn small" onclick="visitNeighbor('${n.id}')">🥚 去偷</button>
-        <button class="btn small danger" onclick="removeNeighbor('${n.id}')">✕</button>
-      </div>
-    `;
+        <button class="btn small" onclick="visitPlayer('${n.id}')">👀 参观</button>
+        <button class="btn small water" onclick="boostNeighbor('${n.id}')">💨 加速</button>
+        <button class="btn small danger outline" onclick="removeNeighbor('${n.id}')">✕</button>
+      </div>`;
     container.appendChild(card);
   });
 }
 
-function renderHotNeighborList(leaderboardList) {
-  // 排行榜数据同步到邻居推荐列表（若有该容器）
-  const recContainer = document.getElementById('neighbor-recommend') || document.getElementById('hot-neighbor-list');
-  if (!recContainer) return;
-  recContainer.innerHTML = '';
-  leaderboardList.slice(0, 5).forEach(p => {
-    if (p.id === (state && state.player.id)) return;
-    const item = document.createElement('div');
-    item.className = 'neighbor-card';
-    item.innerHTML = `
-      <div class="neighbor-info">
-        <div style="font-size:9px;">${p.username}</div>
-        <div style="font-size:7px;opacity:0.7;">Lv.${p.level} · 🪙${p.coins}</div>
-      </div>
-      <div style="display:flex;gap:6px;">
-        <button class="btn small" onclick="visitNeighbor('${p.id}')">👀 去看</button>
-        <button class="btn small" onclick="addNeighbor('${p.id}')">➕</button>
-      </div>
-    `;
-    recContainer.appendChild(item);
+window.sendFriendReq = (id) => { send('SEND_FRIEND_REQ', { toId: id }); showInfo('好友申请已发送，等待对方同意'); };
+window.visitPlayer   = (id) => { send('VIEW_PLAYER', { targetId: id }); switchTab('tab-raid'); };
+window.boostNeighbor = (id) => { send('BOOST_EGG', { targetId: id }); };
+window.removeNeighbor= (id) => { send('REMOVE_NEIGHBOR', { targetId: id }); setTimeout(() => send('GET_NEIGHBORS'), 300); };
+
+// ── 偷袭面板 ──
+document.getElementById('btn-raid-search').addEventListener('click', () => {
+  const name = document.getElementById('raid-search-input').value.trim();
+  if (!name) return;
+  send('SEARCH_PLAYER', { username: name, context: 'raid' });
+});
+document.getElementById('raid-search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-raid-search').click();
+});
+
+// 访问视图渲染
+function renderVisitView() {
+  if (!visitView) return;
+  const vv = document.getElementById('visit-view');
+  vv.style.display = 'block';
+  const p = visitView.player;
+  document.getElementById('visit-target-name').textContent  = `🏡 ${p.username}的温泉`;
+  document.getElementById('visit-target-level').textContent = `Lv.${p.level} · 🪙${p.coins}`;
+
+  // 守卫展示
+  const guardDiv = document.getElementById('visit-guards');
+  guardDiv.innerHTML = '';
+  if (!visitView.guards || visitView.guards.length === 0) {
+    guardDiv.innerHTML = '<span style="font-size:8px;opacity:0.5;">无守卫</span>';
+  } else {
+    visitView.guards.forEach(g => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:inline-flex;flex-direction:column;align-items:center;gap:2px;margin-right:6px;';
+      const c = document.createElement('canvas');
+      c.width = c.height = 36;
+      if (window.PixelRender) PixelRender.drawPet(c, g.type, g.rarity, g.petClass || 'fighter');
+      wrap.appendChild(c);
+      if (g.pet_class === 'skill' && g.skill) {
+        const sk = document.createElement('div');
+        sk.className = 'skill-tag';
+        sk.textContent = skillLabel(g.skill);
+        wrap.appendChild(sk);
+      }
+      guardDiv.appendChild(wrap);
+    });
+  }
+
+  // 蛋展示
+  const eggsDiv = document.getElementById('target-eggs');
+  eggsDiv.innerHTML = '';
+  if (!visitView.eggs || visitView.eggs.length === 0) {
+    eggsDiv.innerHTML = '<div style="font-size:8px;opacity:0.6;">没有蛋可偷</div>';
+  } else {
+    visitView.eggs.forEach(egg => {
+      const now   = Math.floor(Date.now() / 1000);
+      const total = egg.hatch_at - egg.placed_at;
+      const prog  = Math.min(1, (now - egg.placed_at) / total);
+      const card = document.createElement('div');
+      card.className = 'visit-egg' + (selectedEggId === egg.id ? ' selected' : '');
+      const c = document.createElement('canvas');
+      c.width = c.height = 40;
+      if (window.PixelRender) PixelRender.drawEgg(c, egg.rarity, prog);
+      card.appendChild(c);
+      const lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:7px;text-align:center;margin-top:2px;';
+      lbl.textContent = `${rarityLabel(egg.rarity)} ${Math.floor(prog*100)}%`;
+      card.appendChild(lbl);
+      card.addEventListener('click', () => {
+        selectedEggId = egg.id;
+        renderVisitView();
+        document.getElementById('strategy-panel').style.display = 'block';
+        renderAttackerPetSelect();
+      });
+      eggsDiv.appendChild(card);
+    });
+  }
+}
+
+// 攻击宠物选择
+function renderAttackerPetSelect() {
+  const c = document.getElementById('attacker-pet-select');
+  c.innerHTML = '';
+  const none = document.createElement('div');
+  none.className = 'attacker-opt' + (!selectedAttackerPetId ? ' selected' : '');
+  none.textContent = '不选';
+  none.addEventListener('click', () => { selectedAttackerPetId = null; renderAttackerPetSelect(); updateStealPreview(); });
+  c.appendChild(none);
+  (state.pets || []).filter(p => p.role !== 'guard').forEach(pet => {
+    const opt = document.createElement('div');
+    opt.className = 'attacker-opt' + (selectedAttackerPetId === pet.id ? ' selected' : '');
+    opt.innerHTML = `${pet.name}<br><small>⚔${pet.atk} 💨${pet.spd} [${petClassLabel(pet.pet_class||'fighter')}]</small>`;
+    opt.addEventListener('click', () => { selectedAttackerPetId = pet.id; renderAttackerPetSelect(); updateStealPreview(); });
+    c.appendChild(opt);
   });
 }
 
-function visitNeighbor(targetId) {
-  send('VIEW_PLAYER', { targetId });
-  switchTab('steal');
-}
-window.visitNeighbor = visitNeighbor;
+// 策略按钮
+document.querySelectorAll('.strategy-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedStrategy = btn.dataset.strategy;
+    updateStealPreview();
+    document.getElementById('btn-confirm-steal').style.display = 'inline-block';
+  });
+});
 
-function addNeighbor(targetId) {
-  send('ADD_NEIGHBOR', { targetId });
+function updateStealPreview() {
+  const prev = document.getElementById('steal-preview');
+  if (!prev || !visitView) return;
+  const rate = calcStealRate(selectedStrategy || 'sneak');
+  const atk  = selectedAttackerPetId
+    ? (state.pets || []).find(p => p.id === selectedAttackerPetId) : null;
+  const guards = visitView.guards || [];
+  const skillGuards = guards.filter(g => g.pet_class === 'skill');
+  let hint = skillGuards.length > 0
+    ? `⚠️ 对方有 ${skillGuards.length} 只技能型守卫（${skillGuards.map(g=>skillLabel(g.skill)).join('、')}）` : '';
+  prev.innerHTML = `
+    <div style="font-size:9px;">预计成功率：<b style="color:var(--water)">${rate}</b></div>
+    ${atk ? `<div style="font-size:8px;">出击宠物：${atk.name} [${petClassLabel(atk.pet_class||'fighter')}]</div>` : ''}
+    ${hint ? `<div style="font-size:7px;color:#E0784A;">${hint}</div>` : ''}
+  `;
 }
-window.addNeighbor = addNeighbor;
 
-function removeNeighbor(targetId) {
-  send('REMOVE_NEIGHBOR', { targetId });
-  setTimeout(() => send('GET_NEIGHBORS'), 300);
+function calcStealRate(strategy) {
+  if (!visitView) return '--';
+  const defenders  = visitView.guards || [];
+  const attacker   = selectedAttackerPetId ? (state.pets||[]).find(p=>p.id===selectedAttackerPetId) : null;
+  const atkAtk = attacker ? attacker.atk : 8;
+  const atkSpd = attacker ? attacker.spd : 8;
+  const totalDef = defenders.reduce((s,g)=>s+(g.def||10), 0) || 1;
+  const totalSpd = defenders.reduce((s,g)=>s+(g.spd||10), 0) || 1;
+  // 技能型守卫惩罚
+  const mudCount   = defenders.filter(g=>g.pet_class==='skill'&&g.skill==='mud').length;
+  const thornCount = defenders.filter(g=>g.pet_class==='skill'&&g.skill==='thorn').length;
+  let rate = 0.5;
+  if (strategy === 'fight')  rate = atkAtk / (atkAtk + totalDef);
+  else if (strategy === 'sneak') rate = atkSpd / (atkSpd + totalSpd) * 0.9;
+  else if (strategy === 'bribe') rate = Math.max(0.1, 0.7 - defenders.length * 0.1);
+  rate -= mudCount * 0.12;
+  rate  = Math.min(0.93, Math.max(0.05, rate));
+  return Math.round(rate * 100) + '%';
 }
-window.removeNeighbor = removeNeighbor;
 
-// 访问某人时提供"添加邻居"按钮
-function addCurrentVisitAsNeighbor() {
+document.getElementById('btn-confirm-steal').addEventListener('click', () => {
+  if (!selectedEggId)   { showInfo('请先点击选择要偷的蛋！'); return; }
+  if (!selectedStrategy){ showInfo('请选择出击策略！'); return; }
+  if (!visitView)       return;
+  send('STEAL', { targetId: visitView.player.id, eggId: selectedEggId, strategy: selectedStrategy, attackerPetId: selectedAttackerPetId });
+  selectedEggId = null; selectedStrategy = null; selectedAttackerPetId = null;
+  document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('btn-confirm-steal').style.display = 'none';
+  document.getElementById('steal-preview').innerHTML = '<div>选择策略查看成功率...</div>';
+});
+
+document.getElementById('btn-visit-close').addEventListener('click', () => {
+  document.getElementById('visit-view').style.display = 'none';
+  visitView = null;
+});
+document.getElementById('btn-visit-boost').addEventListener('click', () => {
   if (!visitView) return;
-  send('ADD_NEIGHBOR', { targetId: visitView.player.id });
-}
-window.addCurrentVisitAsNeighbor = addCurrentVisitAsNeighbor;
+  send('BOOST_EGG', { targetId: visitView.player.id });
+});
 
-// ============================================================
-// 更新消息路由：支持新事件类型
-// ============================================================
+// ── 签到 ──
+document.getElementById('btn-signin').addEventListener('click', () => send('DAILY_SIGNIN'));
+document.getElementById('btn-daily-signin-tasks').addEventListener('click', () => send('DAILY_SIGNIN'));
+
+// ── 排行榜 ──
+document.getElementById('btn-refresh-rank').addEventListener('click', () => send('GET_LEADERBOARD'));
+function renderLeaderboard(list) {
+  const tbody = document.getElementById('rank-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  list.forEach((p, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${['🥇','🥈','🥉'][i] || (i+1)}</td>
+      <td>${p.username}</td>
+      <td>Lv.${p.level}</td>
+      <td>🪙${p.coins}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── 商店按钮 ──
+document.querySelectorAll('[data-action]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const action = btn.dataset.action;
+    const rarity = btn.dataset.rarity;
+    send(action, rarity ? { rarity } : {});
+  });
+});
+
+// ── 升级弹窗关闭 ──
+document.getElementById('levelup-close').addEventListener('click', () => {
+  document.getElementById('levelup-modal').classList.remove('active');
+});
+
+// ── 孵化弹窗 ──
+function showHatchModal(pet) {
+  const emojis = { legend:'✨🌟', rare:'⭐', common:'🐣' };
+  const e = emojis[pet.rarity] || '🐣';
+  showModal(
+    `${e} ${rarityLabel(pet.rarity)}宠物孵化！`,
+    `孵出了 ${petTypeLabel(pet.type)}！\n类型：${petClassLabel(pet.pet_class||'fighter')}\nATK ${pet.atk} · DEF ${pet.def} · SPD ${pet.spd}${pet.skill ? '\n技能：'+skillLabel(pet.skill) : ''}`,
+    true
+  );
+  if (pet.rarity === 'legend') showGlobalNotice(`🌟 全服广播：${state.player.username} 孵出了传说宠物 ${petTypeLabel(pet.type)}！`);
+}
+
+// ── Tab 导航绑定 ──
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+// ── 服务端消息路由 ──
 function handleServerMsg(type, payload) {
-  switch(type) {
-    case 'NEIGHBOR_ADDED':
-      showGlobalNotice(`✅ 已添加邻居！`);
-      send('GET_NEIGHBORS');
+  switch (type) {
+    case 'LOGGED_IN':
+      onLoggedIn(payload);
       break;
-    case 'NEIGHBORS_LIST':
-      renderNeighborList(payload.list);
+    case 'REGISTER_OK':
+      showSuccess('注册成功！请登录');
+      document.getElementById('reg-err').textContent = '';
+      document.getElementById('go-login').click();
+      break;
+    case 'AUTH_ERROR':
+      document.getElementById('login-err').textContent  = payload.msg || '账号或密码错误';
+      document.getElementById('reg-err').textContent    = payload.msg || '注册失败';
+      break;
+    case 'STATE_UPDATE':
+      checkLevelUp(payload);
+      state = payload;
+      renderMyScene();
       break;
     case 'EGG_HATCHED':
-      // 升级检测
       checkLevelUp(payload.state);
       state = payload.state;
       renderMyScene();
@@ -897,71 +803,75 @@ function handleServerMsg(type, payload) {
       checkLevelUp(payload.attackerState);
       state = payload.attackerState;
       renderMyScene();
-      showStealResultModal(payload);
+      if (payload.success) {
+        showModal('🎉 偷窃成功！',
+          `策略：${strategyLabel(payload.strategy)}\n带走了 ${rarityLabel(payload.eggRarity)} 蛋！\n+🪙${payload.coinsGain}  +EXP ${payload.expGain||10}`, true);
+      } else {
+        const skillMsg = payload.triggeredSkill ? `\n受到 ${skillLabel(payload.triggeredSkill)} 影响！` : '';
+        showModal('😢 偷窃失败！',
+          `策略：${strategyLabel(payload.strategy)}\n守卫阻止了你！${payload.penaltyCoins > 0 ? '损失🪙'+payload.penaltyCoins : '无损失'}${skillMsg}`, false);
+      }
       break;
-    case 'STATE_UPDATE':
+    case 'BEEN_STOLEN':
+      if (payload.defenderState) { state = payload.defenderState; renderMyScene(); }
+      showGlobalNotice(payload.success
+        ? `⚠️ ${payload.attacker.username} 偷走了你的蛋！`
+        : `🛡️ 你的守卫阻止了 ${payload.attacker.username}！`);
+      break;
+    case 'VISITOR_VIEW':
+      visitView = payload;
+      renderVisitView();
+      break;
+    case 'SEARCH_RESULT':
+      onSearchResult(payload, payload.context || 'raid');
+      break;
+    case 'NEIGHBORS_LIST':
+      renderNeighborList(payload.list);
+      break;
+    case 'FRIEND_REQ_SENT':
+      showSuccess('好友申请已发送！');
+      break;
+    case 'FRIEND_REQ_RECEIVED':
+      if (state) {
+        state.incoming_requests = state.incoming_requests || [];
+        state.incoming_requests.push({ from_id: payload.fromId, from_username: payload.fromUsername });
+        renderFriendRequests();
+      }
+      showInfo(`👋 ${payload.fromUsername} 想成为你的邻居`);
+      break;
+    case 'FRIEND_ACCEPTED':
+      send('GET_NEIGHBORS');
+      showSuccess(`🎉 ${payload.friendUsername} 同意了你的邻居申请！`);
+      break;
+    case 'BOOST_OK':
+      showSuccess(`💨 帮助加速成功！为 ${payload.targetName} 节省了 ${formatTime(payload.timeSaved)} 孵化时间`);
+      break;
+    case 'BEEN_BOOSTED':
+      showInfo(`💨 ${payload.boosterName} 帮你加速孵化了！节省 ${formatTime(payload.timeSaved)}`);
+      if (payload.state) { state = payload.state; renderMyScene(); }
+      break;
+    case 'UPGRADE_OK':
       checkLevelUp(payload);
       state = payload;
       renderMyScene();
+      showSuccess('升级成功！');
       break;
     case 'SIGNIN_OK':
       checkLevelUp(payload);
       state = payload;
       renderMyScene();
-      showModal('✅ 签到成功！', '获得 20 金币！+5 EXP\n签到任务进度 +1', true);
+      showModal('✅ 签到成功！', '获得 20 金币！+5 EXP', true);
+      break;
+    case 'LEADERBOARD':
+      renderLeaderboard(payload.list);
+      break;
+    case 'ERROR':
+      showError(payload.msg || payload.code || '操作失败');
       break;
     default:
-      _baseMsgHandler(type, payload);
+      console.log('[WS]', type, payload);
   }
 }
 
-// 偷窃详情弹窗
-function showStealResultModal(payload) {
-  if (payload.success) {
-    showModal('🎉 偷窃成功！',
-      `策略：${strategyLabel(payload.strategy)}\n` +
-      `成功带走了一颗 ${rarityLabel(payload.eggRarity)} 蛋！\n` +
-      `获得 🪙${payload.coinsGain} 金币 · EXP +${payload.expGain || 10}`,
-      true
-    );
-  } else {
-    const trapMsg = payload.triggeredTrap
-      ? `\n踩到了 ${trapLabel(payload.triggeredTrap.type)}！` : '';
-    const penMsg  = payload.penaltyCoins > 0
-      ? `损失 🪙${payload.penaltyCoins}` : '没有损失金币';
-    showModal('😢 偷窃失败！',
-      `策略：${strategyLabel(payload.strategy)}\n被守卫拦截！${penMsg}${trapMsg}`,
-      false
-    );
-  }
-}
-
-function strategyLabel(s) {
-  const m = { charge:'强攻', sneak:'潜行', bribe:'贿赂' };
-  return m[s] || s;
-}
-
-// ============================================================
-// 偷窃面板"添加邻居"按钮绑定
-// ============================================================
-const addNeighborBtn = document.getElementById('add-neighbor-btn') || document.getElementById('visit-add-neighbor-btn');
-if (addNeighborBtn) {
-  addNeighborBtn.addEventListener('click', addCurrentVisitAsNeighbor);
-}
-
-// 邻居标签切换时加载列表
-document.querySelectorAll('.nav-btn').forEach(btn => {
-  if (btn.dataset.tab === 'neighbors') {
-    btn.addEventListener('click', () => {
-      send('GET_NEIGHBORS');
-      send('GET_LEADERBOARD'); // 同时加载推荐列表
-    });
-  }
-});
-
-// ============================================================
-// 启动
-// ============================================================
+// ── 启动 ──
 connectWS();
-// 初始显示登录界面
-document.getElementById('game-screen').style.display = 'none';
