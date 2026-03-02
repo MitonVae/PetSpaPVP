@@ -5,8 +5,34 @@ const fs   = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const DATA_DIR = path.join(__dirname, '../data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
+// 数据目录配置 - 兼容不同部署环境
+let DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
+
+try {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  console.log(`✅ 数据目录已创建/确认: ${DATA_DIR}`);
+} catch (error) {
+  console.error(`❌ 数据目录创建失败: ${DATA_DIR}`, error.message);
+  // 在生产环境中，尝试使用临时目录
+  if (process.env.NODE_ENV === 'production') {
+    const os = require('os');
+    DATA_DIR = path.join(os.tmpdir(), 'petspavpv-data');
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      console.log(`⚠️  使用临时数据目录: ${DATA_DIR}`);
+    } catch (tmpError) {
+      console.error(`❌ 临时目录创建也失败:`, tmpError.message);
+      // 最后尝试使用当前目录下的data文件夹
+      DATA_DIR = path.join(__dirname, 'data');
+      try {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        console.log(`📁 使用备用数据目录: ${DATA_DIR}`);
+      } catch (backupError) {
+        console.error(`💥 所有数据目录创建失败，游戏可能无法正常工作!`);
+      }
+    }
+  }
+}
 
 const FILES = {
   players:         path.join(DATA_DIR, 'players.json'),
@@ -27,7 +53,30 @@ function readDB(key) {
 }
 
 function writeDB(key, data) {
-  fs.writeFileSync(FILES[key], JSON.stringify(data, null, 2), 'utf-8');
+  try {
+    fs.writeFileSync(FILES[key], JSON.stringify(data, null, 2), 'utf-8');
+  } catch (error) {
+    console.error(`❌ 写入文件失败 ${FILES[key]}:`, error.message);
+    // 如果是权限问题，尝试写入到备用位置
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      try {
+        const backupPath = path.join(process.cwd(), 'backup-data', `${key}.json`);
+        const backupDir = path.dirname(backupPath);
+        if (!fs.existsSync(backupDir)) {
+          fs.mkdirSync(backupDir, { recursive: true });
+        }
+        fs.writeFileSync(backupPath, JSON.stringify(data, null, 2), 'utf-8');
+        console.log(`⚠️  数据写入到备用位置: ${backupPath}`);
+        // 更新文件路径以便后续使用
+        FILES[key] = backupPath;
+      } catch (backupError) {
+        console.error(`💥 备用写入也失败:`, backupError.message);
+        throw error; // 抛出原始错误
+      }
+    } else {
+      throw error;
+    }
+  }
 }
 
 // ============================================================

@@ -21,13 +21,45 @@ const {
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
 
-const server = http.createServer(app);
-const wss    = new WebSocket.Server({ server });
+// ================= 健康检查和状态端点 =================
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    timestamp: Date.now(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    version: '2.0.0'
+  });
+});
+
+app.get('/api/status', (req, res) => {
+  // 简单的系统状态检查
+  try {
+    const players = getLeaderboard();
+    res.json({
+      status: 'healthy',
+      players: players.length,
+      onlineCount: onlinePlayers.size,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Status check failed:', error);
+    res.status(500).json({
+      status: 'error',
+      error: 'Database not accessible',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.use(express.static(path.join(__dirname, '../public')));
 
 // 在线玩家 Map: playerId -> ws
 const onlinePlayers = new Map();
+
+const server = http.createServer(app);
+const wss    = new WebSocket.Server({ server });
 
 // ============================================================
 // 工具函数
