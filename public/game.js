@@ -191,58 +191,7 @@ function checkAutoLogin() {
   }
 }
 
-// 登录按钮事件
-document.getElementById('login').addEventListener('click', () => {
-  const u = document.getElementById('username').value.trim();
-  const p = document.getElementById('password').value.trim();
-  const remember = document.getElementById('rememberMe').checked;
-  
-  if (!u || !p) { 
-    document.getElementById('loginErr').textContent = '请填写用户名和密码'; 
-    return; 
-  }
-  
-  // 保存用户名（如果选择了记住）
-  if (remember) {
-    localStorage.setItem('petspa_username', u);
-  } else {
-    localStorage.removeItem('petspa_username');
-    localStorage.removeItem('petspa_token');
-  }
-  
-  send('LOGIN', { username: u, password: p, remember: remember });
-});
-
-// 注册按钮事件  
-document.getElementById('register').addEventListener('click', () => {
-  if (!isRegisterMode) {
-    // 第一次点击：切换到注册模式
-    toggleMode();
-    return;
-  }
-  
-  // 第二次点击：执行注册
-  const u = document.getElementById('username').value.trim();
-  const p = document.getElementById('password').value.trim();
-  const cp = document.getElementById('confirmPassword').value.trim();
-  
-  if (!u || !p || !cp) { 
-    document.getElementById('loginErr').textContent = '请填写所有字段'; 
-    return; 
-  }
-  
-  if (u.length < 2) { 
-    document.getElementById('loginErr').textContent = '用户名至少2位'; 
-    return; 
-  }
-  
-  if (p !== cp) { 
-    document.getElementById('loginErr').textContent = '两次输入的密码不一致'; 
-    return; 
-  }
-  
-  send('REGISTER', { username: u, password: p });
-});
+// 登录和注册按钮事件绑定现在移动到 DOMContentLoaded 中
 
 // ── 登录成功 ──
 function onLoggedIn(payload) {
@@ -1020,9 +969,68 @@ window.askToRegister = function() {
 // ── 启动 ──
 connectWS();
 
-// 页面加载完成后检查自动登录
+// 页面加载完成后检查自动登录和绑定事件
 document.addEventListener('DOMContentLoaded', () => {
   checkAutoLogin();
+  
+  // 绑定登录按钮事件
+  const loginBtn = document.getElementById('login');
+  if (loginBtn) {
+    loginBtn.addEventListener('click', () => {
+      const u = document.getElementById('username').value.trim();
+      const p = document.getElementById('password').value.trim();
+      const remember = document.getElementById('rememberMe').checked;
+      
+      if (!u || !p) { 
+        document.getElementById('loginErr').textContent = '请填写用户名和密码'; 
+        return; 
+      }
+      
+      // 保存用户名（如果选择了记住）
+      if (remember) {
+        localStorage.setItem('petspa_username', u);
+      } else {
+        localStorage.removeItem('petspa_username');
+        localStorage.removeItem('petspa_token');
+      }
+      
+      send('LOGIN', { username: u, password: p, remember: remember });
+    });
+  }
+  
+  // 绑定注册按钮事件
+  const registerBtn = document.getElementById('register');
+  if (registerBtn) {
+    registerBtn.addEventListener('click', () => {
+      if (!isRegisterMode) {
+        // 第一次点击：切换到注册模式
+        toggleMode();
+        return;
+      }
+      
+      // 第二次点击：执行注册
+      const u = document.getElementById('username').value.trim();
+      const p = document.getElementById('password').value.trim();
+      const cp = document.getElementById('confirmPassword').value.trim();
+      
+      if (!u || !p || !cp) { 
+        document.getElementById('loginErr').textContent = '请填写所有字段'; 
+        return; 
+      }
+      
+      if (u.length < 2) { 
+        document.getElementById('loginErr').textContent = '用户名至少2位'; 
+        return; 
+      }
+      
+      if (p !== cp) { 
+        document.getElementById('loginErr').textContent = '两次输入的密码不一致'; 
+        return; 
+      }
+      
+      send('REGISTER', { username: u, password: p });
+    });
+  }
 });
 
 // 如果DOM已经加载完成，立即检查
