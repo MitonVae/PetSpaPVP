@@ -182,5 +182,242 @@
 
     <script src="render.js"></script>
     <script src="game.js"></script>
+
+    <!-- ====================================================
+         登录 / 注册 独立脚本（优先级最高，覆盖 game.js 同名函数）
+         修复：
+           1. send() 静默丢弃（WS 未就绪时将请求排队）
+           2. 服务器注册成功发 LOGGED_IN 而非 REGISTER_OK
+           3. 错误消息正确显示在 loginErr 区域
+    ==================================================== -->
+    <script>
+    (function () {
+      'use strict';
+
+      // ── WS 连接状态指示 ──────────────────────────────────
+      const WS_STATUS = document.createElement('div');
+      WS_STATUS.id = 'ws-status-bar';
+      WS_STATUS.style.cssText =
+        'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+        'padding:4px 12px;font-size:12px;text-align:center;transition:all .3s;display:none;';
+      document.body.appendChild(WS_STATUS);
+
+      function setStatus(msg, color) {
+        WS_STATUS.textContent = msg;
+        WS_STATUS.style.background = color;
+        WS_STATUS.style.color = '#fff';
+        WS_STATUS.style.display = 'block';
+      }
+
+      // ── 安全的 WS send，自动等待就绪 ──────────────────────
+      let _pendingSends = [];
+
+      function safeSend(type, payload) {
+        const data = JSON.stringify({ type, payload: payload || {} });
+        if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        } else {
+          // WS 未就绪：排队，最多等 8 秒
+          _pendingSends.push({ data, ts: Date.now() });
+          setStatus('⏳ 正在连接服务器…', '#e67e22');
+          waitForWS();
+        }
+      }
+
+      let _waitTimer = null;
+      function waitForWS() {
+        if (_waitTimer) return;
+        _waitTimer = setInterval(() => {
+          const now = Date.now();
+          _pendingSends = _pendingSends.filter(p => now - p.ts < 8000);
+          if (!_pendingSends.length) { clearInterval(_waitTimer); _waitTimer = null; return; }
+
+          if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN) {
+            clearInterval(_waitTimer); _waitTimer = null;
+            _pendingSends.forEach(p => ws.send(p.data));
+            _pendingSends = [];
+            setStatus('✅ 已连接', '#27ae60');
+            setTimeout(() => { WS_STATUS.style.display = 'none'; }, 1500);
+          }
+        }, 200);
+      }
+
+      // ── 显示登录错误 ──────────────────────────────────────
+      function showLoginErr(msg) {
+        const el = document.getElementById('loginErr');
+        if (el) { el.textContent = msg; el.style.color = '#e74c3c'; }
+      }
+      function clearLoginErr() {
+        const el = document.getElementById('loginErr');
+        if (el) el.textContent = '';
+      }
+
+      // ── 注册模式切换 ─────────────────────────────────────
+      let _isRegMode = false;
+
+      function switchToRegister() {
+        _isRegMode = true;
+        const cp = document.getElementById('confirmPassword');
+        if (cp) cp.style.display = '';
+        const regBtn = document.getElementById('register');
+        if (regBtn) { regBtn.textContent = '✅ 确认注册'; regBtn.style.background = '#27ae60'; }
+        const loginBtn = document.getElementById('login');
+        if (loginBtn) loginBtn.textContent = '← 返回登录';
+        clearLoginErr();
+        document.getElementById('username') && document.getElementById('username').focus();
+      }
+
+      function switchToLogin() {
+        _isRegMode = false;
+        const cp = document.getElementById('confirmPassword');
+        if (cp) { cp.style.display = 'none'; cp.value = ''; }
+        const regBtn = document.getElementById('register');
+        if (regBtn) { regBtn.textContent = '注册'; regBtn.style.background = ''; }
+        const loginBtn = document.getElementById('login');
+        if (loginBtn) loginBtn.textContent = '登录';
+        clearLoginErr();
+      }
+
+      // ── 覆盖全局登录函数 ─────────────────────────────────
+      window.handleLogin = function () {
+        if (_isRegMode) { switchToLogin(); return; }
+
+        const u = (document.getElementById('username').value || '').trim();
+        const p = (document.getElementById('password').value || '').trim();
+
+        if (!u || !p) { showLoginErr('请填写用户名和密码'); return; }
+
+        clearLoginErr();
+        const loginBtn = document.getElementById('login');
+        if (loginBtn) { loginBtn.textContent = '登录中…'; loginBtn.disabled = true; }
+
+        safeSend('LOGIN', { username: u, password: p });
+
+        // 5 秒超时提示
+        setTimeout(() => {
+          if (loginBtn && loginBtn.disabled) {
+            loginBtn.textContent = '登录';
+            loginBtn.disabled = false;
+            showLoginErr('服务器响应超时，请检查网络后重试');
+          }
+        }, 5000);
+      };
+
+      window.handleRegister = function () {
+        if (!_isRegMode) { switchToRegister(); return; }
+
+        const u  = (document.getElementById('username').value || '').trim();
+        const p  = (document.getElementById('password').value || '').trim();
+        const cp = (document.getElementById('confirmPassword').value || '').trim();
+
+        if (!u || !p || !cp) { showLoginErr('请填写所有字段'); return; }
+        if (u.length < 2)    { showLoginErr('用户名至少2位'); return; }
+        if (p.length < 3)    { showLoginErr('密码至少3位'); return; }
+        if (p !== cp)        { showLoginErr('两次密码不一致'); return; }
+
+        clearLoginErr();
+        const regBtn = document.getElementById('register');
+        if (regBtn) { regBtn.textContent = '注册中…'; regBtn.disabled = true; }
+
+        safeSend('REGISTER', { username: u, password: p });
+
+        setTimeout(() => {
+          if (regBtn && regBtn.disabled) {
+            regBtn.textContent = '✅ 确认注册';
+            regBtn.disabled = false;
+            showLoginErr('服务器响应超时，请检查网络后重试');
+          }
+        }, 5000);
+      };
+
+      // ── 拦截 handleServerMsg 以处理登录/注册响应 ─────────
+      //    game.js 里的 handleServerMsg 不变，这里在 WS onmessage 前拦截
+      const _origConnectWS = window.connectWS;   // game.js 启动时设置的
+
+      // 在 WS 层面加一个拦截器（不破坏 game.js 现有逻辑）
+      const _origWsDescriptor = Object.getOwnPropertyDescriptor(window, 'ws');
+
+      // 直接 patch onmessage（game.js 的 connectWS 已经跑了）
+      // 用一个 MutationObserver 轮询 ws 就绪
+      let _patchDone = false;
+      function patchWS() {
+        if (_patchDone) return;
+        if (typeof ws === 'undefined' || !ws) return;
+        _patchDone = true;
+
+        const origOnMessage = ws.onmessage;
+        ws.onmessage = function (ev) {
+          try {
+            const { type, payload } = JSON.parse(ev.data);
+            // 登录/注册界面可见时，优先处理这些消息
+            const loginVisible = document.getElementById('login-screen') &&
+              document.getElementById('login-screen').style.display !== 'none';
+
+            if (loginVisible) {
+              if (type === 'LOGGED_IN') {
+                // 恢复按钮
+                const loginBtn = document.getElementById('login');
+                if (loginBtn) { loginBtn.textContent = '登录'; loginBtn.disabled = false; }
+                const regBtn = document.getElementById('register');
+                if (regBtn) { regBtn.textContent = '注册'; regBtn.disabled = false; }
+                setStatus('✅ 登录成功！', '#27ae60');
+              }
+              if (type === 'ERROR' || type === 'AUTH_ERROR') {
+                const loginBtn = document.getElementById('login');
+                if (loginBtn) { loginBtn.textContent = '登录'; loginBtn.disabled = false; }
+                const regBtn = document.getElementById('register');
+                if (regBtn) {
+                  regBtn.textContent = _isRegMode ? '✅ 确认注册' : '注册';
+                  regBtn.disabled = false;
+                }
+                showLoginErr(payload.msg || payload.code || '操作失败');
+                WS_STATUS.style.display = 'none';
+              }
+            }
+          } catch (e) { /* ignore */ }
+
+          // 继续调用 game.js 的原始处理器
+          if (origOnMessage) origOnMessage.call(this, ev);
+        };
+
+        // WS 连接状态
+        const origOnOpen = ws.onopen;
+        ws.onopen = function (e) {
+          setStatus('✅ 服务器已连接', '#27ae60');
+          setTimeout(() => { WS_STATUS.style.display = 'none'; }, 2000);
+          if (origOnOpen) origOnOpen.call(this, e);
+        };
+        const origOnClose = ws.onclose;
+        ws.onclose = function (e) {
+          setStatus('🔴 服务器断开，重连中…', '#c0392b');
+          _patchDone = false;   // 重连后需要重新 patch
+          if (origOnClose) origOnClose.call(this, e);
+        };
+      }
+
+      // 每 300ms 检查 ws 是否已经被 connectWS() 初始化
+      const _patchInterval = setInterval(() => {
+        if (typeof ws !== 'undefined' && ws) { patchWS(); }
+        if (_patchDone) clearInterval(_patchInterval);
+      }, 300);
+
+      // ── 回车键快捷提交 ─────────────────────────────────────
+      document.addEventListener('DOMContentLoaded', function () {
+        ['username', 'password', 'confirmPassword'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) {
+            el.addEventListener('keydown', function (e) {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (_isRegMode) window.handleRegister();
+                else window.handleLogin();
+              }
+            });
+          }
+        });
+      });
+
+    })();
+    </script>
 </body>
 </html>
