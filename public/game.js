@@ -856,11 +856,24 @@ function handleServerMsg(type, payload) {
       }
       break;
     case 'AUTH_ERROR':
-      document.getElementById('loginErr').textContent = payload.msg || '登录失败';
-      // 如果是用户不存在错误，询问是否注册
-      if (payload.code === 'USER_NOT_FOUND') {
-        document.getElementById('loginErr').innerHTML = 
-          '用户不存在！<button class="btn small" onclick="askToRegister()" style="margin-left:8px;">立即注册</button>';
+    case 'ERROR': // 添加对服务器实际发送的ERROR消息的处理
+      const errMsg = payload.msg || payload.code || '操作失败';
+      
+      // 只有当前在登录界面时才显示登录错误
+      if (document.getElementById('login-screen').style.display !== 'none') {
+        const loginErrElement = document.getElementById('loginErr');
+        if (loginErrElement) {
+          loginErrElement.textContent = errMsg;
+          
+          // 如果是用户不存在错误，询问是否注册
+          if (payload.code === 'AUTH_FAIL' && errMsg.includes('用户名或密码错误')) {
+            loginErrElement.innerHTML = 
+              '用户名或密码错误！<button class="btn small" onclick="askToRegister()" style="margin-left:8px;">立即注册</button>';
+          }
+        }
+      } else {
+        // 如果已经在游戏中，显示toast错误提示
+        showError(errMsg);
       }
       break;
     case 'STATE_UPDATE':

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录系统调试器</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #00ff00;
+        }
+        .debug-section {
+            border: 1px solid #333;
+            padding: 15px;
+            margin: 10px 0;
+            background: #222;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 5px;
+            border-radius: 3px;
+        }
+        .status.ok { background: #0a5a0a; }
+        .status.error { background: #5a0a0a; }
+        .status.waiting { background: #5a5a0a; }
+        #log {
+            height: 300px;
+            overflow-y: scroll;
+            background: #000;
+            padding: 10px;
+            border: 1px solid #333;
+            white-space: pre-wrap;
+        }
+        input, button {
+            padding: 8px;
+            margin: 5px;
+            background: #333;
+            color: #00ff00;
+            border: 1px solid #555;
+        }
+        button {
+            cursor: pointer;
+        }
+        button:hover {
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐛 登录系统调试器</h1>
+    
+    <div class="debug-section">
+        <h2>连接状态</h2>
+        <span class="status waiting" id="wsStatus">WebSocket: 连接中...</span>
+        <span class="status waiting" id="serverStatus">服务器: 检查中...</span>
+    </div>
+
+    <div class="debug-section">
+        <h2>登录测试</h2>
+        <input type="text" id="testUsername" placeholder="测试用户名" value="testuser123">
+        <input type="password" id="testPassword" placeholder="测试密码" value="password123">
+        <br>
+        <button onclick="testLogin()">🔑 测试登录</button>
+        <button onclick="testRegister()">📝 测试注册</button>
+        <button onclick="clearLogs()">🧹 清空日志</button>
+    </div>
+
+    <div class="debug-section">
+        <h2>实时日志</h2>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const WS_URL = location.protocol === 'https:' 
+            ? `wss://${location.host}` 
+            : `ws://${location.host}`;
+
+        let ws = null;
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('log');
+            const typeColors = {
+                info: '#00ff00',
+                error: '#ff0000',
+                send: '#00aaff',
+                recv: '#ffaa00'
+            };
+            logDiv.innerHTML += `<span style="color: ${typeColors[type]};">[${timestamp}] ${message}</span>\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateStatus(elementId, text, isOk) {
+            const el = document.getElementById(elementId);
+            el.textContent = text;
+            el.className = 'status ' + (isOk ? 'ok' : 'error');
+        }
+
+        function connectWS() {
+            log(`正在连接 WebSocket: ${WS_URL}`, 'info');
+            
+            try {
+                ws = new WebSocket(WS_URL);
+
+                ws.onopen = () => {
+                    log('✅ WebSocket 连接成功！', 'info');
+                    updateStatus('wsStatus', 'WebSocket: 已连接', true);
+                    checkServer();
+                };
+
+                ws.onclose = (event) => {
+                    log(`❌ WebSocket 连接关闭: ${event.code} - ${event.reason}`, 'error');
+                    updateStatus('wsStatus', 'WebSocket: 已断开', false);
+                    setTimeout(connectWS, 3000);
+                };
+
+                ws.onerror = (error) => {
+                    log(`💥 WebSocket 错误: ${error}`, 'error');
+                    updateStatus('wsStatus', 'WebSocket: 连接错误', false);
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        log(`📨 收到消息: ${JSON.stringify(message, null, 2)}`, 'recv');
+                        handleServerMessage(message);
+                    } catch (e) {
+                        log(`💥 解析消息失败: ${event.data}`, 'error');
+                    }
+                };
+
+            } catch (error) {
+                log(`💥 创建 WebSocket 失败: ${error}`, 'error');
+                updateStatus('wsStatus', 'WebSocket: 创建失败', false);
+            }
+        }
+
+        function send(type, payload = {}) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log(`❌ 无法发送消息: WebSocket 未连接`, 'error');
+                return false;
+            }
+            
+            const message = { type, payload };
+            log(`📤 发送消息: ${JSON.stringify(message, null, 2)}`, 'send');
+            ws.send(JSON.stringify(message));
+            return true;
+        }
+
+        function handleServerMessage(message) {
+            const { type, payload } = message;
+            
+            switch (type) {
+                case 'LOGGED_IN':
+                    log('🎉 登录成功！', 'info');
+                    updateStatus('serverStatus', '服务器: 登录成功', true);
+                    break;
+                case 'REGISTER_OK':
+                    log('🎉 注册成功！', 'info');
+                    break;
+                case 'ERROR':
+                case 'AUTH_ERROR':
+                    log(`❌ 服务器错误: ${payload.msg || payload.code}`, 'error');
+                    updateStatus('serverStatus', `服务器: ${payload.msg || payload.code}`, false);
+                    break;
+                default:
+                    log(`ℹ️ 未知消息类型: ${type}`, 'info');
+            }
+        }
+
+        function checkServer() {
+            log('🔍 检查服务器状态...', 'info');
+            // 发送一个测试请求
+            if (send('PING', { timestamp: Date.now() })) {
+                updateStatus('serverStatus', '服务器: 通信正常', true);
+            }
+        }
+
+        function testLogin() {
+            const username = document.getElementById('testUsername').value.trim();
+            const password = document.getElementById('testPassword').value.trim();
+            
+            if (!username || !password) {
+                log('❌ 请填写用户名和密码', 'error');
+                return;
+            }
+
+            log(`🔑 测试登录: ${username}`, 'info');
+            send('LOGIN', { username, password, remember: false });
+        }
+
+        function testRegister() {
+            const username = document.getElementById('testUsername').value.trim();
+            const password = document.getElementById('testPassword').value.trim();
+            
+            if (!username || !password) {
+                log('❌ 请填写用户名和密码', 'error');
+                return;
+            }
+
+            log(`📝 测试注册: ${username}`, 'info');
+            send('REGISTER', { username, password });
+        }
+
+        function clearLogs() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // 页面加载时开始连接
+        window.onload = () => {
+            log('🚀 调试器启动', 'info');
+            connectWS();
+        };
+    </script>
+</body>
+</html>
