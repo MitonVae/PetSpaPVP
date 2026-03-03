@@ -126,15 +126,17 @@ function updateTopbar() {
   if (!state) return;
   const p = state.player;
   const $ = id => document.getElementById(id);
-  $('tb-username').textContent = p.username;
-  $('tb-level').textContent    = p.level;
-  $('tb-coins').textContent    = p.coins;
+  $('playerName').textContent = p.username;
+  $('playerLevel').textContent = p.level;
+  $('playerCoins').textContent = p.coins;
   const needed = p.level * 100;
   const pct = Math.min(100, Math.floor(p.exp / needed * 100));
-  $('tb-exp-text').textContent = `${p.exp}/${needed}`;
-  $('tb-exp-bar').style.width  = pct + '%';
-  const b = $('spa-level-tag');
-  if (b) b.textContent = `温泉 Lv.${state.spa_level || 1}`;
+  const expBar = $('expBar');
+  if (expBar) expBar.style.width = pct + '%';
+  const spaLevel = $('spaLevel');
+  if (spaLevel) spaLevel.textContent = state.spa_level || 1;
+  const spaLevelBadge = $('spaLevelBadge');
+  if (spaLevelBadge) spaLevelBadge.textContent = state.spa_level || 1;
 }
 
 // ── 倒计时循环 ──
@@ -153,37 +155,107 @@ function startCountdownLoop() {
 // Part 2 — 登录 / 主场景 / 蛋池 / 守卫 / 宠物 / 任务渲染
 // ============================================================
 
-// ── 登录界面 ──
-document.getElementById('btn-login').addEventListener('click', () => {
-  const u = document.getElementById('login-username').value.trim();
-  const p = document.getElementById('login-password').value.trim();
-  if (!u || !p) { document.getElementById('login-err').textContent = '请填写用户名和密码'; return; }
-  send('LOGIN', { username: u, password: p });
+// ── 登录界面（统一设计） ──
+let isRegisterMode = false;
+
+// 切换登录/注册模式
+function toggleMode() {
+  isRegisterMode = !isRegisterMode;
+  const confirmPasswordInput = document.getElementById('confirmPassword');
+  const loginBtn = document.getElementById('login');
+  const registerBtn = document.getElementById('register');
+  const errorDiv = document.getElementById('loginErr');
+  
+  if (isRegisterMode) {
+    confirmPasswordInput.style.display = 'block';
+    loginBtn.style.display = 'none';
+    registerBtn.textContent = '确认注册';
+  } else {
+    confirmPasswordInput.style.display = 'none';
+    loginBtn.style.display = 'block';
+    registerBtn.textContent = '注册';
+  }
+  errorDiv.textContent = '';
+}
+
+// 页面加载时检查localStorage
+function checkAutoLogin() {
+  const savedUsername = localStorage.getItem('petspa_username');
+  const savedToken = localStorage.getItem('petspa_token');
+  
+  if (savedUsername && savedToken) {
+    document.getElementById('username').value = savedUsername;
+    document.getElementById('rememberMe').checked = true;
+    // 尝试用token自动登录
+    send('AUTO_LOGIN', { username: savedUsername, token: savedToken });
+  }
+}
+
+// 登录按钮事件
+document.getElementById('login').addEventListener('click', () => {
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value.trim();
+  const remember = document.getElementById('rememberMe').checked;
+  
+  if (!u || !p) { 
+    document.getElementById('loginErr').textContent = '请填写用户名和密码'; 
+    return; 
+  }
+  
+  // 保存用户名（如果选择了记住）
+  if (remember) {
+    localStorage.setItem('petspa_username', u);
+  } else {
+    localStorage.removeItem('petspa_username');
+    localStorage.removeItem('petspa_token');
+  }
+  
+  send('LOGIN', { username: u, password: p, remember: remember });
 });
 
-document.getElementById('btn-register').addEventListener('click', () => {
-  const u = document.getElementById('reg-username').value.trim();
-  const p = document.getElementById('reg-password').value.trim();
-  if (!u || !p) { document.getElementById('reg-err').textContent = '请填写用户名和密码'; return; }
-  if (u.length < 2) { document.getElementById('reg-err').textContent = '用户名至少2位'; return; }
+// 注册按钮事件  
+document.getElementById('register').addEventListener('click', () => {
+  if (!isRegisterMode) {
+    // 第一次点击：切换到注册模式
+    toggleMode();
+    return;
+  }
+  
+  // 第二次点击：执行注册
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value.trim();
+  const cp = document.getElementById('confirmPassword').value.trim();
+  
+  if (!u || !p || !cp) { 
+    document.getElementById('loginErr').textContent = '请填写所有字段'; 
+    return; 
+  }
+  
+  if (u.length < 2) { 
+    document.getElementById('loginErr').textContent = '用户名至少2位'; 
+    return; 
+  }
+  
+  if (p !== cp) { 
+    document.getElementById('loginErr').textContent = '两次输入的密码不一致'; 
+    return; 
+  }
+  
   send('REGISTER', { username: u, password: p });
-});
-
-document.getElementById('go-register').addEventListener('click', () => {
-  document.getElementById('login-box').style.display    = 'none';
-  document.getElementById('register-box').style.display = 'block';
-});
-document.getElementById('go-login').addEventListener('click', () => {
-  document.getElementById('register-box').style.display = 'none';
-  document.getElementById('login-box').style.display    = 'block';
 });
 
 // ── 登录成功 ──
 function onLoggedIn(payload) {
   state     = payload;
   prevLevel = payload.player.level;
+  
+  // 保存token用于自动登录
+  if (payload.token) {
+    localStorage.setItem('petspa_token', payload.token);
+  }
+  
   document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('game-screen').style.display  = 'block';
+  document.getElementById('main-screen').style.display  = 'block';
   updateTopbar();
   renderMyScene();
   renderFriendRequests();
@@ -819,12 +891,28 @@ function handleServerMsg(type, payload) {
       break;
     case 'REGISTER_OK':
       showSuccess('注册成功！请登录');
-      document.getElementById('reg-err').textContent = '';
-      document.getElementById('go-login').click();
+      document.getElementById('loginErr').textContent = '';
+      // 重置到登录模式
+      if (isRegisterMode) {
+        toggleMode();
+      }
+      break;
+    case 'AUTO_LOGIN':
+      if (payload.success) {
+        onLoggedIn(payload.state);
+      } else {
+        // 自动登录失败，清除token
+        localStorage.removeItem('petspa_token');
+        document.getElementById('loginErr').textContent = '自动登录失败，请重新登录';
+      }
       break;
     case 'AUTH_ERROR':
-      document.getElementById('login-err').textContent  = payload.msg || '账号或密码错误';
-      document.getElementById('reg-err').textContent    = payload.msg || '注册失败';
+      document.getElementById('loginErr').textContent = payload.msg || '登录失败';
+      // 如果是用户不存在错误，询问是否注册
+      if (payload.code === 'USER_NOT_FOUND') {
+        document.getElementById('loginErr').innerHTML = 
+          '用户不存在！<button class="btn small" onclick="askToRegister()" style="margin-left:8px;">立即注册</button>';
+      }
       break;
     case 'STATE_UPDATE':
       checkLevelUp(payload);
@@ -920,5 +1008,24 @@ function handleServerMsg(type, payload) {
   }
 }
 
+// ── 辅助函数 ──
+// 询问用户是否要注册（当用户不存在时）
+window.askToRegister = function() {
+  if (!isRegisterMode) {
+    toggleMode();
+  }
+  document.getElementById('loginErr').textContent = '';
+};
+
 // ── 启动 ──
 connectWS();
+
+// 页面加载完成后检查自动登录
+document.addEventListener('DOMContentLoaded', () => {
+  checkAutoLogin();
+});
+
+// 如果DOM已经加载完成，立即检查
+if (document.readyState !== 'loading') {
+  checkAutoLogin();
+}

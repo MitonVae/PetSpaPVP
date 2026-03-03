@@ -18,6 +18,13 @@
         <div class="login-box">
             <input type="text" id="username" placeholder="用户名 (2-16字符)" maxlength="16">
             <input type="password" id="password" placeholder="密码">
+            <input type="password" id="confirmPassword" placeholder="确认密码" style="display: none;">
+            <div class="login-options">
+                <label class="remember-option">
+                    <input type="checkbox" id="rememberMe">
+                    记住账号
+                </label>
+            </div>
             <button class="btn" id="login">登录</button>
             <button class="btn secondary" id="register">注册</button>
             <div class="err-msg" id="loginErr"></div>
