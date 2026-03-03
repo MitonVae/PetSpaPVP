@@ -1039,3 +1039,43 @@ if (document.readyState !== 'loading') {
   console.log('📄 DOM already loaded!'); // 调试日志
   checkAutoLogin();
 }
+
+// ── 游客模式 - 紧急修复 ──
+window.enterGuestMode = function() {
+  console.log('🎮 Guest Mode activated!');
+  
+  // 模拟游客登录状态
+  state = {
+    username: '游客' + Math.floor(Math.random() * 10000),
+    level: 1,
+    coins: 100,
+    exp: 0,
+    eggs: [],
+    pets: [],
+    guards: [],
+    spaLevel: 1,
+    maxEggSlots: 2,
+    maxGuardSlots: 2,
+    maxPetSlots: 6
+  };
+  
+  // 直接进入游戏界面
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+  
+  // 初始化游戏界面
+  document.getElementById('playerName').textContent = state.username;
+  document.getElementById('playerLevel').textContent = state.level;
+  document.getElementById('playerCoins').textContent = state.coins;
+  document.getElementById('spaLevel').textContent = state.spaLevel;
+  document.getElementById('spaLevelBadge').textContent = state.spaLevel;
+  document.getElementById('eggCount').textContent = '0';
+  document.getElementById('maxEggSlots').textContent = state.maxEggSlots;
+  document.getElementById('guardCount').textContent = '0';
+  document.getElementById('maxGuardSlots').textContent = state.maxGuardSlots;
+  
+  // 显示游客模式提示
+  showInfo('🎮 游客模式已启用！您可以体验游戏界面，但数据不会保存');
+  
+  console.log('✅ Guest mode setup complete');
+};
