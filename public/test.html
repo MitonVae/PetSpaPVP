@@ -2,693 +2,182 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🧪 登录注册系统自动化测试器</title>
+    <title>🧪 登录注册诊断工具</title>
     <style>
-        body {
-            font-family: monospace;
-            padding: 20px;
-            background: #0a0a0a;
-            color: #00ff00;
-            line-height: 1.6;
-        }
-        .test-container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .section {
-            border: 2px solid #333;
-            padding: 20px;
-            margin: 20px 0;
-            background: #111;
-            border-radius: 8px;
-        }
-        .status {
-            display: inline-block;
-            padding: 6px 12px;
-            margin: 5px;
-            border-radius: 4px;
-            font-weight: bold;
-        }
-        .status.pass { background: #0a5a0a; color: white; }
-        .status.fail { background: #5a0a0a; color: white; }
-        .status.running { background: #5a5a0a; color: white; }
-        .status.pending { background: #333; color: #ccc; }
-        
-        .test-log {
-            height: 300px;
-            overflow-y: auto;
-            background: #000;
-            border: 1px solid #333;
-            padding: 10px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-        }
-        
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin: 10px 0;
-            flex-wrap: wrap;
-        }
-        
-        button {
-            padding: 10px 20px;
-            background: #333;
-            color: #00ff00;
-            border: 1px solid #666;
-            cursor: pointer;
-            border-radius: 4px;
-            font-family: monospace;
-        }
-        button:hover { background: #444; }
-        button:disabled { 
-            background: #222; 
-            color: #666; 
-            cursor: not-allowed; 
-        }
-        
-        .test-iframe {
-            width: 100%;
-            height: 400px;
-            border: 2px solid #333;
-            background: white;
-        }
-        
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 15px 0;
-        }
-        
-        .metric-card {
-            background: #222;
-            padding: 15px;
-            border-radius: 6px;
-            border-left: 4px solid #00ff00;
-        }
-        
-        .metric-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #00ff00;
-        }
-        
-        .metric-label {
-            font-size: 12px;
-            color: #999;
-            text-transform: uppercase;
-        }
+        body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
+        h1   { color: #0f0; }
+        .btn { padding: 10px 20px; margin: 6px; cursor: pointer; border: none; border-radius: 4px;
+               font-size: 14px; font-family: monospace; }
+        .btn-green  { background: #27ae60; color: #fff; }
+        .btn-blue   { background: #2980b9; color: #fff; }
+        .btn-orange { background: #e67e22; color: #fff; }
+        .btn-red    { background: #c0392b; color: #fff; }
+        #log { background: #000; border: 1px solid #333; padding: 12px; height: 320px;
+               overflow-y: auto; white-space: pre-wrap; font-size: 12px; margin-top: 16px; }
+        .pass { color: #2ecc71; }
+        .fail { color: #e74c3c; }
+        .info { color: #3498db; }
+        .warn { color: #f39c12; }
+        iframe { width: 100%; height: 500px; border: 2px solid #444; margin-top: 16px; background: #fff; }
+        .section { border: 1px solid #333; padding: 16px; margin: 12px 0; border-radius: 6px; }
+        #wsStatus { font-weight: bold; padding: 4px 10px; border-radius: 4px; background:#333; }
     </style>
 </head>
 <body>
-    <div class="test-container">
-        <h1>🧪 登录注册系统自动化测试器</h1>
-        <p style="color: #999;">深度测试用户报告的"点击无响应"问题</p>
-        
-        <!-- 测试控制面板 -->
-        <div class="section">
-            <h2>🎮 测试控制面板</h2>
-            <div class="controls">
-                <button id="startFullTest">🚀 开始完整测试</button>
-                <button id="testLoginOnly">🔑 仅测试登录</button>
-                <button id="testRegisterOnly">📝 仅测试注册</button>
-                <button id="testButtonClicks">🖱️ 测试按钮点击响应</button>
-                <button id="clearLogs">🧹 清空日志</button>
-                <button id="exportResults">📊 导出结果</button>
-            </div>
-        </div>
+    <h1>🧪 登录注册诊断工具</h1>
 
-        <!-- 测试状态概览 -->
-        <div class="section">
-            <h2>📊 测试状态概览</h2>
-            <div class="metrics">
-                <div class="metric-card">
-                    <div class="metric-value" id="totalTests">0</div>
-                    <div class="metric-label">总测试数</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value" id="passedTests">0</div>
-                    <div class="metric-label">通过测试</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value" id="failedTests">0</div>
-                    <div class="metric-label">失败测试</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value" id="responseTime">--</div>
-                    <div class="metric-label">响应时间 (ms)</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 实时测试状态 -->
-        <div class="section">
-            <h2>⚡ 当前测试进度</h2>
-            <div id="testProgress">
-                <span class="status pending" id="status-connection">WebSocket 连接</span>
-                <span class="status pending" id="status-dom">DOM 元素检查</span>
-                <span class="status pending" id="status-click">按钮点击测试</span>
-                <span class="status pending" id="status-network">网络请求监控</span>
-                <span class="status pending" id="status-response">服务器响应</span>
-                <span class="status pending" id="status-ui">UI 反馈检查</span>
-            </div>
-        </div>
-
-        <!-- 测试日志 -->
-        <div class="section">
-            <h2>📝 详细测试日志</h2>
-            <div class="test-log" id="testLog"></div>
-        </div>
-
-        <!-- 被测试页面 -->
-        <div class="section">
-            <h2>🔍 被测试页面</h2>
-            <iframe id="testFrame" class="test-iframe" src="about:blank"></iframe>
-        </div>
-
-        <!-- 诊断结果 -->
-        <div class="section">
-            <h2>🔬 问题诊断结果</h2>
-            <div id="diagnosisResults">
-                <p style="color: #999;">运行测试后将显示详细诊断结果...</p>
-            </div>
-        </div>
+    <div class="section">
+        <b>📡 直连 WebSocket 测试</b><br>
+        <span id="wsStatus">未连接</span>
+        <br><br>
+        <button class="btn btn-blue"   onclick="doWsConnect()">1️⃣ 连接 WebSocket</button>
+        <button class="btn btn-green"  onclick="doWsLogin()">2️⃣ 发送 LOGIN</button>
+        <button class="btn btn-orange" onclick="doWsRegister()">3️⃣ 发送 REGISTER</button>
+        <button class="btn btn-red"    onclick="doWsClear()">清除日志</button>
     </div>
 
+    <div class="section">
+        <b>📝 测试参数</b><br><br>
+        用户名：<input id="tUser" value="testuser123" style="background:#222;color:#eee;border:1px solid #555;padding:4px;width:200px;">
+        &nbsp;
+        密码：<input id="tPass" value="pass123" type="password" style="background:#222;color:#eee;border:1px solid #555;padding:4px;width:200px;">
+    </div>
+
+    <div class="section">
+        <b>🎮 iframe 内嵌游戏页（观察实际游戏登录行为）</b><br>
+        <button class="btn btn-blue" onclick="loadGame()">加载游戏页面</button>
+        <button class="btn btn-green" onclick="clickLoginInGame()">模拟点击登录</button>
+        <button class="btn btn-orange" onclick="readGameErr()">读取错误信息</button>
+        <iframe id="gameFrame" src="about:blank"></iframe>
+    </div>
+
+    <div id="log">[等待操作…]</div>
+
     <script>
-        class LoginTestSuite {
-            constructor() {
-                this.testResults = [];
-                this.startTime = null;
-                this.iframe = document.getElementById('testFrame');
-                this.log = document.getElementById('testLog');
-                this.isRunning = false;
-                
-                // 统计数据
-                this.totalTests = 0;
-                this.passedTests = 0;
-                this.failedTests = 0;
-                
-                this.initEventListeners();
+        let _ws = null;
+        const log = document.getElementById('log');
+
+        function addLog(msg, cls) {
+            const t = new Date().toLocaleTimeString();
+            log.innerHTML += '<span class="' + (cls||'info') + '">[' + t + '] ' + msg + '\n</span>';
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function setWsStatus(txt, color) {
+            const el = document.getElementById('wsStatus');
+            el.textContent = txt;
+            el.style.background = color || '#333';
+        }
+
+        // ── 1. 直接 WS 连接 ──────────────────────────────
+        function doWsConnect() {
+            if (_ws && _ws.readyState < 2) { addLog('WS 已连接，先关闭旧连接','warn'); _ws.close(); }
+            const url = location.protocol === 'https:'
+                ? 'wss://' + location.host : 'ws://' + location.host;
+            addLog('正在连接 ' + url + ' …', 'info');
+            setWsStatus('连接中…', '#e67e22');
+
+            _ws = new WebSocket(url);
+
+            _ws.onopen = function() {
+                addLog('✅ WebSocket 连接成功！readyState=' + _ws.readyState, 'pass');
+                setWsStatus('✅ 已连接', '#27ae60');
+            };
+            _ws.onclose = function(e) {
+                addLog('❌ WS 断开 code=' + e.code + ' reason=' + (e.reason||'无'), 'fail');
+                setWsStatus('❌ 已断开', '#c0392b');
+            };
+            _ws.onerror = function(e) {
+                addLog('❌ WS 错误：' + JSON.stringify(e.type), 'fail');
+                setWsStatus('❌ 错误', '#c0392b');
+            };
+            _ws.onmessage = function(ev) {
+                addLog('📨 收到服务器消息：' + ev.data, 'pass');
+            };
+        }
+
+        // ── 2. 发送 LOGIN ────────────────────────────────
+        function doWsLogin() {
+            const u = document.getElementById('tUser').value.trim();
+            const p = document.getElementById('tPass').value.trim();
+            if (!_ws || _ws.readyState !== WebSocket.OPEN) {
+                addLog('⚠️ WS 未连接！请先点"连接 WebSocket"', 'warn'); return;
             }
+            const msg = JSON.stringify({ type: 'LOGIN', payload: { username: u, password: p } });
+            _ws.send(msg);
+            addLog('📤 已发送 LOGIN: ' + msg, 'info');
+        }
 
-            initEventListeners() {
-                document.getElementById('startFullTest').addEventListener('click', () => this.runFullTest());
-                document.getElementById('testLoginOnly').addEventListener('click', () => this.testLoginFlow());
-                document.getElementById('testRegisterOnly').addEventListener('click', () => this.testRegisterFlow());
-                document.getElementById('testButtonClicks').addEventListener('click', () => this.testButtonResponses());
-                document.getElementById('clearLogs').addEventListener('click', () => this.clearLogs());
-                document.getElementById('exportResults').addEventListener('click', () => this.exportResults());
+        // ── 3. 发送 REGISTER ─────────────────────────────
+        function doWsRegister() {
+            const u = document.getElementById('tUser').value.trim();
+            const p = document.getElementById('tPass').value.trim();
+            if (!_ws || _ws.readyState !== WebSocket.OPEN) {
+                addLog('⚠️ WS 未连接！请先点"连接 WebSocket"', 'warn'); return;
             }
+            const msg = JSON.stringify({ type: 'REGISTER', payload: { username: u, password: p } });
+            _ws.send(msg);
+            addLog('📤 已发送 REGISTER: ' + msg, 'info');
+        }
 
-            log(message, type = 'info') {
-                const timestamp = new Date().toLocaleTimeString();
-                const colors = {
-                    info: '#00ff00',
-                    error: '#ff4444',
-                    warning: '#ffaa00',
-                    success: '#44ff44',
-                    debug: '#8888ff'
-                };
-                
-                const logEntry = `[${timestamp}] ${message}\n`;
-                const coloredEntry = `<span style="color: ${colors[type]};">${logEntry}</span>`;
-                
-                this.log.innerHTML += coloredEntry;
-                this.log.scrollTop = this.log.scrollHeight;
-                
-                console.log(`[LoginTestSuite] ${message}`);
-            }
+        // ── 4. 清除日志 ──────────────────────────────────
+        function doWsClear() { log.innerHTML = ''; }
 
-            updateStatus(statusId, result, details = '') {
-                const element = document.getElementById(`status-${statusId}`);
-                if (!element) return;
-                
-                element.className = `status ${result}`;
-                element.title = details;
-                
-                if (result === 'pass') {
-                    element.innerHTML = element.innerHTML.split(' ')[0] + ' ✅';
-                } else if (result === 'fail') {
-                    element.innerHTML = element.innerHTML.split(' ')[0] + ' ❌';
-                } else if (result === 'running') {
-                    element.innerHTML = element.innerHTML.split(' ')[0] + ' ⏳';
-                }
-            }
+        // ── 5. iframe 游戏页 ─────────────────────────────
+        function loadGame() {
+            const f = document.getElementById('gameFrame');
+            f.src = '/';
+            addLog('🎮 正在加载游戏页面到 iframe…', 'info');
+            f.onload = function() {
+                addLog('✅ 游戏页面加载完成', 'pass');
+            };
+        }
 
-            updateMetrics() {
-                document.getElementById('totalTests').textContent = this.totalTests;
-                document.getElementById('passedTests').textContent = this.passedTests;
-                document.getElementById('failedTests').textContent = this.failedTests;
-                
-                if (this.startTime) {
-                    const responseTime = Date.now() - this.startTime;
-                    document.getElementById('responseTime').textContent = responseTime;
-                }
-            }
+        function clickLoginInGame() {
+            const f = document.getElementById('gameFrame');
+            try {
+                const fw = f.contentWindow;
+                const fd = f.contentDocument || fw.document;
+                const uEl = fd.getElementById('username');
+                const pEl = fd.getElementById('password');
+                if (!uEl || !pEl) { addLog('❌ 未找到登录输入框（页面可能未加载）', 'fail'); return; }
+                uEl.value = document.getElementById('tUser').value;
+                pEl.value = document.getElementById('tPass').value;
+                addLog('✅ 已填写用户名=' + uEl.value + '，密码已设置', 'info');
 
-            async runFullTest() {
-                if (this.isRunning) {
-                    this.log('测试已在运行中...', 'warning');
-                    return;
-                }
+                const btn = fd.getElementById('login');
+                if (!btn) { addLog('❌ 未找到登录按钮', 'fail'); return; }
+                addLog('🖱️ 正在点击登录按钮…', 'info');
+                btn.click();
+                addLog('✅ 点击完成，等待响应…', 'info');
 
-                this.isRunning = true;
-                this.startTime = Date.now();
-                this.testResults = [];
-                this.totalTests = 0;
-                this.passedTests = 0;
-                this.failedTests = 0;
-
-                this.log('🚀 开始完整登录注册系统测试', 'info');
-                
-                try {
-                    // 1. 加载测试页面
-                    await this.loadTestPage();
-                    
-                    // 2. 测试 WebSocket 连接
-                    await this.testWebSocketConnection();
-                    
-                    // 3. 测试 DOM 元素
-                    await this.testDOMElements();
-                    
-                    // 4. 测试按钮点击响应
-                    await this.testButtonResponses();
-                    
-                    // 5. 测试登录流程
-                    await this.testLoginFlow();
-                    
-                    // 6. 测试注册流程
-                    await this.testRegisterFlow();
-                    
-                    // 7. 生成诊断报告
-                    await this.generateDiagnosisReport();
-                    
-                } catch (error) {
-                    this.log(`❌ 测试过程中出现错误: ${error.message}`, 'error');
-                } finally {
-                    this.isRunning = false;
-                    this.updateMetrics();
-                    this.log('🏁 完整测试流程结束', 'info');
-                }
-            }
-
-            async loadTestPage() {
-                this.log('📄 正在加载测试页面...', 'info');
-                this.updateStatus('connection', 'running');
-                
-                return new Promise((resolve, reject) => {
-                    this.iframe.onload = () => {
-                        this.log('✅ 测试页面加载成功', 'success');
-                        this.updateStatus('connection', 'pass');
-                        resolve();
-                    };
-                    
-                    this.iframe.onerror = () => {
-                        this.log('❌ 测试页面加载失败', 'error');
-                        this.updateStatus('connection', 'fail');
-                        reject(new Error('页面加载失败'));
-                    };
-                    
-                    // 加载实际的游戏页面
-                    this.iframe.src = window.location.origin + '/';
-                    
-                    // 设置超时
-                    setTimeout(() => {
-                        if (this.iframe.contentDocument?.readyState !== 'complete') {
-                            reject(new Error('页面加载超时'));
-                        }
-                    }, 10000);
-                });
-            }
-
-            async testWebSocketConnection() {
-                this.log('🔌 测试 WebSocket 连接...', 'info');
-                this.updateStatus('network', 'running');
-                
-                return new Promise((resolve) => {
-                    try {
-                        const wsUrl = window.location.protocol === 'https:' 
-                            ? `wss://${window.location.host}` 
-                            : `ws://${window.location.host}`;
-                        
-                        const testWs = new WebSocket(wsUrl);
-                        
-                        testWs.onopen = () => {
-                            this.log('✅ WebSocket 连接成功', 'success');
-                            this.updateStatus('network', 'pass');
-                            this.recordTest('WebSocket连接', true, 'WebSocket服务器响应正常');
-                            testWs.close();
-                            resolve();
-                        };
-                        
-                        testWs.onerror = (error) => {
-                            this.log(`❌ WebSocket 连接失败: ${error}`, 'error');
-                            this.updateStatus('network', 'fail');
-                            this.recordTest('WebSocket连接', false, 'WebSocket服务器连接失败');
-                            resolve(); // 继续其他测试
-                        };
-                        
-                        // 超时处理
-                        setTimeout(() => {
-                            if (testWs.readyState === WebSocket.CONNECTING) {
-                                this.log('⏰ WebSocket 连接超时', 'warning');
-                                this.updateStatus('network', 'fail');
-                                this.recordTest('WebSocket连接', false, 'WebSocket连接超时');
-                                testWs.close();
-                                resolve();
-                            }
-                        }, 5000);
-                        
-                    } catch (error) {
-                        this.log(`❌ WebSocket 测试异常: ${error.message}`, 'error');
-                        this.updateStatus('network', 'fail');
-                        this.recordTest('WebSocket连接', false, `异常: ${error.message}`);
-                        resolve();
-                    }
-                });
-            }
-
-            async testDOMElements() {
-                this.log('🔍 检查 DOM 元素...', 'info');
-                this.updateStatus('dom', 'running');
-                
-                await this.waitForIframeLoad();
-                
-                try {
-                    const doc = this.iframe.contentDocument;
-                    
-                    // 检查关键元素
-                    const elements = {
-                        '用户名输入框': '#username',
-                        '密码输入框': '#password',
-                        '登录按钮': '#login',
-                        '注册按钮': '#register',
-                        '错误提示区域': '#loginErr'
-                    };
-                    
-                    let allFound = true;
-                    
-                    for (const [name, selector] of Object.entries(elements)) {
-                        const element = doc.querySelector(selector);
-                        if (element) {
-                            this.log(`✅ 找到${name}: ${selector}`, 'success');
-                        } else {
-                            this.log(`❌ 未找到${name}: ${selector}`, 'error');
-                            allFound = false;
-                        }
-                    }
-                    
-                    if (allFound) {
-                        this.updateStatus('dom', 'pass');
-                        this.recordTest('DOM元素检查', true, '所有必要元素都存在');
-                    } else {
-                        this.updateStatus('dom', 'fail');
-                        this.recordTest('DOM元素检查', false, '部分必要元素缺失');
-                    }
-                    
-                } catch (error) {
-                    this.log(`❌ DOM 检查失败: ${error.message}`, 'error');
-                    this.updateStatus('dom', 'fail');
-                    this.recordTest('DOM元素检查', false, `异常: ${error.message}`);
-                }
-            }
-
-            async testButtonResponses() {
-                this.log('🖱️ 测试按钮点击响应...', 'info');
-                this.updateStatus('click', 'running');
-                
-                try {
-                    const doc = this.iframe.contentDocument;
-                    const loginBtn = doc.querySelector('#login');
-                    const registerBtn = doc.querySelector('#register');
-                    
-                    if (!loginBtn || !registerBtn) {
-                        this.log('❌ 无法找到登录或注册按钮', 'error');
-                        this.updateStatus('click', 'fail');
-                        this.recordTest('按钮点击测试', false, '按钮元素不存在');
-                        return;
-                    }
-                    
-                    // 监听点击事件
-                    let clickEventFired = false;
-                    let jsErrorOccurred = false;
-                    
-                    // 监听JavaScript错误
-                    this.iframe.contentWindow.addEventListener('error', (e) => {
-                        this.log(`❌ JavaScript错误: ${e.message} 在 ${e.filename}:${e.lineno}`, 'error');
-                        jsErrorOccurred = true;
-                    });
-                    
-                    // 测试登录按钮点击
-                    loginBtn.addEventListener('click', () => {
-                        clickEventFired = true;
-                        this.log('✅ 登录按钮点击事件被触发', 'success');
-                    });
-                    
-                    // 模拟点击
-                    this.log('🖱️ 模拟点击登录按钮...', 'info');
-                    loginBtn.click();
-                    
-                    // 等待响应
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    
-                    if (clickEventFired && !jsErrorOccurred) {
-                        this.updateStatus('click', 'pass');
-                        this.recordTest('按钮点击测试', true, '按钮点击正常响应');
-                    } else {
-                        this.updateStatus('click', 'fail');
-                        this.recordTest('按钮点击测试', false, 
-                            `点击事件: ${clickEventFired ? '正常' : '无响应'}, JS错误: ${jsErrorOccurred ? '有' : '无'}`);
-                    }
-                    
-                } catch (error) {
-                    this.log(`❌ 按钮测试异常: ${error.message}`, 'error');
-                    this.updateStatus('click', 'fail');
-                    this.recordTest('按钮点击测试', false, `异常: ${error.message}`);
-                }
-            }
-
-            async testLoginFlow() {
-                this.log('🔑 测试登录流程...', 'info');
-                this.updateStatus('response', 'running');
-                
-                try {
-                    const doc = this.iframe.contentDocument;
-                    
-                    // 填写测试数据
-                    const usernameInput = doc.querySelector('#username');
-                    const passwordInput = doc.querySelector('#password');
-                    const loginBtn = doc.querySelector('#login');
-                    const errorDiv = doc.querySelector('#loginErr');
-                    
-                    if (!usernameInput || !passwordInput || !loginBtn) {
-                        this.recordTest('登录流程测试', false, '必要的表单元素不存在');
-                        return;
-                    }
-                    
-                    // 清空并填写测试数据
-                    usernameInput.value = 'testuser_' + Date.now();
-                    passwordInput.value = 'wrongpassword';
-                    
-                    this.log(`🔤 填写测试数据: 用户名=${usernameInput.value}`, 'info');
-                    
-                    // 记录点击前状态
-                    const beforeClick = {
-                        errorText: errorDiv ? errorDiv.textContent : '',
-                        loginScreenVisible: doc.querySelector('#login-screen')?.style.display !== 'none'
-                    };
-                    
-                    this.log('🖱️ 点击登录按钮...', 'info');
-                    loginBtn.click();
-                    
-                    // 等待响应（增加等待时间）
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                    
-                    // 检查响应
-                    const afterClick = {
-                        errorText: errorDiv ? errorDiv.textContent : '',
-                        loginScreenVisible: doc.querySelector('#login-screen')?.style.display !== 'none'
-                    };
-                    
-                    this.log(`📊 点击前状态: 错误文本="${beforeClick.errorText}", 登录界面可见=${beforeClick.loginScreenVisible}`, 'debug');
-                    this.log(`📊 点击后状态: 错误文本="${afterClick.errorText}", 登录界面可见=${afterClick.loginScreenVisible}`, 'debug');
-                    
-                    // 分析结果
-                    const hasResponse = afterClick.errorText !== beforeClick.errorText || 
-                                      afterClick.errorText.length > 0 ||
-                                      !afterClick.loginScreenVisible;
-                    
-                    if (hasResponse) {
-                        this.updateStatus('response', 'pass');
-                        this.recordTest('登录流程测试', true, `收到响应: ${afterClick.errorText || '界面发生变化'}`);
-                    } else {
-                        this.updateStatus('response', 'fail');
-                        this.recordTest('登录流程测试', false, '点击后完全无响应，无任何UI变化');
-                    }
-                    
-                } catch (error) {
-                    this.log(`❌ 登录流程测试异常: ${error.message}`, 'error');
-                    this.updateStatus('response', 'fail');
-                    this.recordTest('登录流程测试', false, `异常: ${error.message}`);
-                }
-            }
-
-            async testRegisterFlow() {
-                this.log('📝 测试注册流程...', 'info');
-                this.updateStatus('ui', 'running');
-                
-                try {
-                    const doc = this.iframe.contentDocument;
-                    const registerBtn = doc.querySelector('#register');
-                    
-                    if (!registerBtn) {
-                        this.recordTest('注册流程测试', false, '注册按钮不存在');
-                        return;
-                    }
-                    
-                    this.log('🖱️ 点击注册按钮...', 'info');
-                    registerBtn.click();
-                    
-                    // 等待UI变化
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    
-                    // 检查是否切换到注册模式
-                    const confirmPasswordInput = doc.querySelector('#confirmPassword');
-                    const isRegisterMode = confirmPasswordInput && 
-                                         confirmPasswordInput.style.display !== 'none';
-                    
-                    if (isRegisterMode) {
-                        this.updateStatus('ui', 'pass');
-                        this.recordTest('注册流程测试', true, '成功切换到注册模式');
-                    } else {
-                        this.updateStatus('ui', 'fail');
-                        this.recordTest('注册流程测试', false, '点击注册按钮无UI响应');
-                    }
-                    
-                } catch (error) {
-                    this.log(`❌ 注册流程测试异常: ${error.message}`, 'error');
-                    this.updateStatus('ui', 'fail');
-                    this.recordTest('注册流程测试', false, `异常: ${error.message}`);
-                }
-            }
-
-            async generateDiagnosisReport() {
-                this.log('🔬 生成诊断报告...', 'info');
-                
-                const resultsDiv = document.getElementById('diagnosisResults');
-                
-                let report = '<h3>🔍 问题诊断报告</h3>';
-                
-                // 分析失败的测试
-                const failedTests = this.testResults.filter(t => !t.passed);
-                
-                if (failedTests.length === 0) {
-                    report += '<p style="color: #44ff44;">✅ 所有测试都通过了！登录注册系统工作正常。</p>';
-                } else {
-                    report += '<p style="color: #ff4444;">❌ 发现以下问题：</p>';
-                    report += '<ul>';
-                    
-                    failedTests.forEach(test => {
-                        report += `<li><strong>${test.name}</strong>: ${test.details}</li>`;
-                    });
-                    
-                    report += '</ul>';
-                    
-                    // 提供修复建议
-                    report += '<h4>🛠️ 修复建议：</h4>';
-                    
-                    if (failedTests.some(t => t.name.includes('WebSocket'))) {
-                        report += '<p>• WebSocket连接问题：检查服务器状态和网络连接</p>';
-                    }
-                    
-                    if (failedTests.some(t => t.name.includes('DOM'))) {
-                        report += '<p>• DOM元素问题：检查HTML结构和元素ID是否正确</p>';
-                    }
-                    
-                    if (failedTests.some(t => t.name.includes('按钮点击'))) {
-                        report += '<p>• 按钮点击问题：检查JavaScript事件绑定和错误处理</p>';
-                    }
-                    
-                    if (failedTests.some(t => t.name.includes('登录流程'))) {
-                        report += '<p>• 登录流程问题：这正是用户报告的"点击无响应"问题的根源</p>';
-                    }
-                }
-                
-                // 添加测试统计
-                report += `
-                    <h4>📊 测试统计：</h4>
-                    <ul>
-                        <li>总测试数: ${this.totalTests}</li>
-                        <li>通过: ${this.passedTests}</li>
-                        <li>失败: ${this.failedTests}</li>
-                        <li>成功率: ${this.totalTests > 0 ? Math.round((this.passedTests / this.totalTests) * 100) : 0}%</li>
-                    </ul>
-                `;
-                
-                resultsDiv.innerHTML = report;
-            }
-
-            recordTest(name, passed, details) {
-                this.testResults.push({ name, passed, details, timestamp: new Date() });
-                this.totalTests++;
-                if (passed) {
-                    this.passedTests++;
-                } else {
-                    this.failedTests++;
-                }
-                this.updateMetrics();
-            }
-
-            async waitForIframeLoad() {
-                return new Promise((resolve) => {
-                    if (this.iframe.contentDocument?.readyState === 'complete') {
-                        resolve();
-                    } else {
-                        this.iframe.addEventListener('load', resolve, { once: true });
-                    }
-                });
-            }
-
-            clearLogs() {
-                this.log.innerHTML = '';
-                this.log('🧹 日志已清空', 'info');
-            }
-
-            exportResults() {
-                const results = {
-                    timestamp: new Date().toISOString(),
-                    testResults: this.testResults,
-                    metrics: {
-                        total: this.totalTests,
-                        passed: this.passedTests,
-                        failed: this.failedTests
-                    }
-                };
-                
-                const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `login-test-results-${Date.now()}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-                
-                this.log('📊 测试结果已导出', 'success');
+                // 1.5 秒后读结果
+                setTimeout(() => {
+                    const errEl = fd.getElementById('loginErr');
+                    const errText = errEl ? errEl.textContent : '(未找到 loginErr 元素)';
+                    const mainScreen = fd.getElementById('main-screen');
+                    const mainVisible = mainScreen && mainScreen.style.display !== 'none';
+                    addLog('📋 结果: loginErr="' + errText + '"', errText ? 'warn' : 'pass');
+                    addLog('📋 结果: main-screen 可见=' + mainVisible, mainVisible ? 'pass' : 'info');
+                    if (!errText && !mainVisible) addLog('⚠️ 无任何变化！可能按钮点击未触发', 'warn');
+                }, 1500);
+            } catch(e) {
+                addLog('❌ iframe 访问失败：' + e.message, 'fail');
             }
         }
 
-        // 初始化测试套件
-        const testSuite = new LoginTestSuite();
-        
-        // 页面加载完成后自动运行一次快速检查
-        window.addEventListener('load', () => {
-            testSuite.log('🚀 自动化测试系统已启动', 'info');
-            testSuite.log('💡 点击"开始完整测试"来诊断登录问题', 'info');
-        });
+        function readGameErr() {
+            const f = document.getElementById('gameFrame');
+            try {
+                const fd = f.contentDocument || f.contentWindow.document;
+                const errEl = fd.getElementById('loginErr');
+                addLog('📋 loginErr 内容: "' + (errEl ? errEl.textContent : '元素不存在') + '"', 'info');
+                const wsStatusBar = fd.getElementById('ws-status-bar');
+                if (wsStatusBar) addLog('📡 WS状态条: "' + wsStatusBar.textContent + '"', 'info');
+            } catch(e) {
+                addLog('❌ ' + e.message, 'fail');
+            }
+        }
     </script>
 </body>
 </html>
