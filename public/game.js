@@ -16,10 +16,28 @@ let prevLevel = 1;
 let guardSlotTarget = -1;
 let petActionTarget = null;
 
+// ── 登录/注册 等待队列（WS未就绪时暂存） ──
+window._wsQueue = [];
+
 // ── WebSocket ──
 function connectWS() {
   ws = new WebSocket(WS_URL);
-  ws.onopen  = () => console.log('✅ WS connected');
+
+  ws.onopen = () => {
+    console.log('✅ WS connected');
+    // 冲刷登录等待队列
+    if (window._wsQueue && window._wsQueue.length > 0) {
+      console.log('📤 冲刷 WS 队列，共', window._wsQueue.length, '条');
+      window._wsQueue.forEach(function(data) {
+        ws.send(data);
+        console.log('📤 队列发送:', data);
+      });
+      window._wsQueue = [];
+    }
+    // 通知 index.html 的脚本 WS 已就绪
+    if (typeof window._onWsReady === 'function') window._onWsReady();
+  };
+
   ws.onclose = () => setTimeout(connectWS, 3000);
   ws.onmessage = (ev) => {
     try { const { type, payload } = JSON.parse(ev.data); handleServerMsg(type, payload); }
@@ -28,8 +46,14 @@ function connectWS() {
 }
 
 function send(type, payload = {}) {
-  if (ws && ws.readyState === WebSocket.OPEN)
-    ws.send(JSON.stringify({ type, payload }));
+  const data = JSON.stringify({ type, payload });
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(data);
+  } else {
+    // WS 未就绪时放入队列，onopen 时自动发送
+    console.log('⏳ WS 未就绪，入队:', type);
+    window._wsQueue.push(data);
+  }
 }
 
 // ── Toast ──
