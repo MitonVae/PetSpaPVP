@@ -115,12 +115,13 @@ function skillLabel(sk)    {
 
 // ── Tab 切换 ──
 function switchTab(tabId) {
+  // HTML 中按钮用 data-panel，面板 id 也是 panel 名，统一用 data-panel
   document.querySelectorAll('.nav-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.tab === tabId));
+    b.classList.toggle('active', (b.dataset.panel || b.dataset.tab) === tabId));
   document.querySelectorAll('.panel').forEach(p =>
     p.classList.toggle('active', p.id === tabId));
-  if (tabId === 'tab-rank')   send('GET_LEADERBOARD');
-  if (tabId === 'tab-social') { send('GET_NEIGHBORS'); send('GET_HOT_PLAYERS'); }
+  if (tabId === 'leaderboard') send('GET_LEADERBOARD');
+  if (tabId === 'social') { send('GET_NEIGHBORS'); send('GET_HOT_PLAYERS'); }
 }
 
 // ── 子导航切换（社交面板内） ──
@@ -848,7 +849,11 @@ function showHatchModal(pet) {
 
 // ── Tab 导航绑定 ──
 document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  btn.addEventListener('click', () => {
+    // 兼容 data-panel 和 data-tab 两种写法
+    const tabId = btn.dataset.panel || btn.dataset.tab;
+    if (tabId) switchTab(tabId);
+  });
 });
 
 // ── 子导航绑定（社交面板内） ──
@@ -1003,116 +1008,8 @@ window.askToRegister = function() {
   document.getElementById('loginErr').textContent = '';
 };
 
-// ── 全局登录和注册函数（用于内联onclick） ──
-window.handleLogin = function() {
-  console.log('🔧 Login button clicked!'); // 调试日志
-  
-  const u = document.getElementById('username').value.trim();
-  const p = document.getElementById('password').value.trim();
-  const remember = document.getElementById('rememberMe').checked;
-  
-  if (!u || !p) { 
-    document.getElementById('loginErr').textContent = '请填写用户名和密码'; 
-    return; 
-  }
-  
-  // 保存用户名（如果选择了记住）
-  if (remember) {
-    localStorage.setItem('petspa_username', u);
-  } else {
-    localStorage.removeItem('petspa_username');
-    localStorage.removeItem('petspa_token');
-  }
-  
-  console.log('🚀 Sending LOGIN request...'); // 调试日志
-  send('LOGIN', { username: u, password: p, remember: remember });
-};
-
-window.handleRegister = function() {
-  console.log('🔧 Register button clicked!'); // 调试日志
-  
-  if (!isRegisterMode) {
-    // 第一次点击：切换到注册模式
-    console.log('🔄 Switching to register mode...'); // 调试日志
-    toggleMode();
-    return;
-  }
-  
-  // 第二次点击：执行注册
-  const u = document.getElementById('username').value.trim();
-  const p = document.getElementById('password').value.trim();
-  const cp = document.getElementById('confirmPassword').value.trim();
-  
-  if (!u || !p || !cp) { 
-    document.getElementById('loginErr').textContent = '请填写所有字段'; 
-    return; 
-  }
-  
-  if (u.length < 2) { 
-    document.getElementById('loginErr').textContent = '用户名至少2位'; 
-    return; 
-  }
-  
-  if (p !== cp) { 
-    document.getElementById('loginErr').textContent = '两次输入的密码不一致'; 
-    return; 
-  }
-  
-  console.log('🚀 Sending REGISTER request...'); // 调试日志
-  send('REGISTER', { username: u, password: p });
-};
-
 // ── 启动 ──
+// handleLogin / handleRegister / enterGuestMode 由 index.html 内联脚本定义
+// （在 game.js 之后执行，拥有10秒硬超时安全机制）
 connectWS();
-
-// 页面加载完成后检查自动登录
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('📄 DOM Content Loaded!'); // 调试日志
-  checkAutoLogin();
-});
-
-// 如果DOM已经加载完成，立即检查
-if (document.readyState !== 'loading') {
-  console.log('📄 DOM already loaded!'); // 调试日志
-  checkAutoLogin();
-}
-
-// ── 游客模式 - 紧急修复 ──
-window.enterGuestMode = function() {
-  console.log('🎮 Guest Mode activated!');
-  
-  // 模拟游客登录状态
-  state = {
-    username: '游客' + Math.floor(Math.random() * 10000),
-    level: 1,
-    coins: 100,
-    exp: 0,
-    eggs: [],
-    pets: [],
-    guards: [],
-    spaLevel: 1,
-    maxEggSlots: 2,
-    maxGuardSlots: 2,
-    maxPetSlots: 6
-  };
-  
-  // 直接进入游戏界面
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('main-screen').style.display = 'block';
-  
-  // 初始化游戏界面
-  document.getElementById('playerName').textContent = state.username;
-  document.getElementById('playerLevel').textContent = state.level;
-  document.getElementById('playerCoins').textContent = state.coins;
-  document.getElementById('spaLevel').textContent = state.spaLevel;
-  document.getElementById('spaLevelBadge').textContent = state.spaLevel;
-  document.getElementById('eggCount').textContent = '0';
-  document.getElementById('maxEggSlots').textContent = state.maxEggSlots;
-  document.getElementById('guardCount').textContent = '0';
-  document.getElementById('maxGuardSlots').textContent = state.maxGuardSlots;
-  
-  // 显示游客模式提示
-  showInfo('🎮 游客模式已启用！您可以体验游戏界面，但数据不会保存');
-  
-  console.log('✅ Guest mode setup complete');
-};
+checkAutoLogin();
