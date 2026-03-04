@@ -2,182 +2,76 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>🧪 登录注册诊断工具</title>
+    <title>WS诊断</title>
     <style>
-        body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
-        h1   { color: #0f0; }
-        .btn { padding: 10px 20px; margin: 6px; cursor: pointer; border: none; border-radius: 4px;
-               font-size: 14px; font-family: monospace; }
-        .btn-green  { background: #27ae60; color: #fff; }
-        .btn-blue   { background: #2980b9; color: #fff; }
-        .btn-orange { background: #e67e22; color: #fff; }
-        .btn-red    { background: #c0392b; color: #fff; }
-        #log { background: #000; border: 1px solid #333; padding: 12px; height: 320px;
-               overflow-y: auto; white-space: pre-wrap; font-size: 12px; margin-top: 16px; }
-        .pass { color: #2ecc71; }
-        .fail { color: #e74c3c; }
-        .info { color: #3498db; }
-        .warn { color: #f39c12; }
-        iframe { width: 100%; height: 500px; border: 2px solid #444; margin-top: 16px; background: #fff; }
-        .section { border: 1px solid #333; padding: 16px; margin: 12px 0; border-radius: 6px; }
-        #wsStatus { font-weight: bold; padding: 4px 10px; border-radius: 4px; background:#333; }
+        body { background:#111; color:#eee; font-family:monospace; padding:20px; }
+        button { padding:10px 18px; margin:5px; cursor:pointer; font-size:14px; border:none; border-radius:4px; }
+        input  { background:#222; color:#eee; border:1px solid #555; padding:6px; width:180px; font-size:14px; }
+        #log   { background:#000; padding:12px; height:300px; overflow-y:auto;
+                 white-space:pre-wrap; font-size:13px; border:1px solid #333; margin-top:14px; }
     </style>
 </head>
 <body>
-    <h1>🧪 登录注册诊断工具</h1>
+    <h2 style="color:#0f0">🧪 WebSocket 诊断工具</h2>
 
-    <div class="section">
-        <b>📡 直连 WebSocket 测试</b><br>
-        <span id="wsStatus">未连接</span>
-        <br><br>
-        <button class="btn btn-blue"   onclick="doWsConnect()">1️⃣ 连接 WebSocket</button>
-        <button class="btn btn-green"  onclick="doWsLogin()">2️⃣ 发送 LOGIN</button>
-        <button class="btn btn-orange" onclick="doWsRegister()">3️⃣ 发送 REGISTER</button>
-        <button class="btn btn-red"    onclick="doWsClear()">清除日志</button>
+    <div style="margin:10px 0">
+        用户名: <input id="u" value="testuser">
+        &nbsp; 密码: <input id="p" type="password" value="pass123">
     </div>
 
-    <div class="section">
-        <b>📝 测试参数</b><br><br>
-        用户名：<input id="tUser" value="testuser123" style="background:#222;color:#eee;border:1px solid #555;padding:4px;width:200px;">
-        &nbsp;
-        密码：<input id="tPass" value="pass123" type="password" style="background:#222;color:#eee;border:1px solid #555;padding:4px;width:200px;">
-    </div>
+    <button style="background:#2980b9;color:#fff" onclick="doConnect()">① 连接WS</button>
+    <button style="background:#27ae60;color:#fff" onclick="doLogin()">② 发送LOGIN</button>
+    <button style="background:#e67e22;color:#fff" onclick="doRegister()">③ 发送REGISTER</button>
+    <button style="background:#555;color:#fff"    onclick="doClear()">清空</button>
 
-    <div class="section">
-        <b>🎮 iframe 内嵌游戏页（观察实际游戏登录行为）</b><br>
-        <button class="btn btn-blue" onclick="loadGame()">加载游戏页面</button>
-        <button class="btn btn-green" onclick="clickLoginInGame()">模拟点击登录</button>
-        <button class="btn btn-orange" onclick="readGameErr()">读取错误信息</button>
-        <iframe id="gameFrame" src="about:blank"></iframe>
-    </div>
-
-    <div id="log">[等待操作…]</div>
+    <div id="log">准备就绪，点击按钮开始测试…</div>
 
     <script>
-        let _ws = null;
-        const log = document.getElementById('log');
+    var _ws = null;
 
-        function addLog(msg, cls) {
-            const t = new Date().toLocaleTimeString();
-            log.innerHTML += '<span class="' + (cls||'info') + '">[' + t + '] ' + msg + '\n</span>';
-            log.scrollTop = log.scrollHeight;
-        }
+    function lg(msg) {
+        var el = document.getElementById('log');
+        el.innerHTML = el.innerHTML + '\n[' + new Date().toLocaleTimeString() + '] ' + msg;
+        el.scrollTop = el.scrollHeight;
+    }
 
-        function setWsStatus(txt, color) {
-            const el = document.getElementById('wsStatus');
-            el.textContent = txt;
-            el.style.background = color || '#333';
-        }
-
-        // ── 1. 直接 WS 连接 ──────────────────────────────
-        function doWsConnect() {
-            if (_ws && _ws.readyState < 2) { addLog('WS 已连接，先关闭旧连接','warn'); _ws.close(); }
-            const url = location.protocol === 'https:'
-                ? 'wss://' + location.host : 'ws://' + location.host;
-            addLog('正在连接 ' + url + ' …', 'info');
-            setWsStatus('连接中…', '#e67e22');
-
+    function doConnect() {
+        lg('开始连接...');
+        try {
+            if (_ws) { try { _ws.close(); } catch(e){} }
+            var url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+            lg('连接地址: ' + url);
             _ws = new WebSocket(url);
+            _ws.onopen    = function() { lg('✅ 连接成功！'); };
+            _ws.onclose   = function(e) { lg('❌ 断开: code=' + e.code); };
+            _ws.onerror   = function()  { lg('❌ 连接错误'); };
+            _ws.onmessage = function(e) { lg('📨 收到: ' + e.data); };
+        } catch(e) { lg('❌ 异常: ' + e.message); }
+    }
 
-            _ws.onopen = function() {
-                addLog('✅ WebSocket 连接成功！readyState=' + _ws.readyState, 'pass');
-                setWsStatus('✅ 已连接', '#27ae60');
-            };
-            _ws.onclose = function(e) {
-                addLog('❌ WS 断开 code=' + e.code + ' reason=' + (e.reason||'无'), 'fail');
-                setWsStatus('❌ 已断开', '#c0392b');
-            };
-            _ws.onerror = function(e) {
-                addLog('❌ WS 错误：' + JSON.stringify(e.type), 'fail');
-                setWsStatus('❌ 错误', '#c0392b');
-            };
-            _ws.onmessage = function(ev) {
-                addLog('📨 收到服务器消息：' + ev.data, 'pass');
-            };
-        }
+    function doLogin() {
+        lg('尝试登录...');
+        if (!_ws || _ws.readyState !== 1) { lg('⚠️ 未连接，请先点①'); return; }
+        var u = document.getElementById('u').value;
+        var p = document.getElementById('p').value;
+        var msg = JSON.stringify({type:'LOGIN', payload:{username:u, password:p}});
+        _ws.send(msg);
+        lg('📤 已发送: ' + msg);
+    }
 
-        // ── 2. 发送 LOGIN ────────────────────────────────
-        function doWsLogin() {
-            const u = document.getElementById('tUser').value.trim();
-            const p = document.getElementById('tPass').value.trim();
-            if (!_ws || _ws.readyState !== WebSocket.OPEN) {
-                addLog('⚠️ WS 未连接！请先点"连接 WebSocket"', 'warn'); return;
-            }
-            const msg = JSON.stringify({ type: 'LOGIN', payload: { username: u, password: p } });
-            _ws.send(msg);
-            addLog('📤 已发送 LOGIN: ' + msg, 'info');
-        }
+    function doRegister() {
+        lg('尝试注册...');
+        if (!_ws || _ws.readyState !== 1) { lg('⚠️ 未连接，请先点①'); return; }
+        var u = document.getElementById('u').value;
+        var p = document.getElementById('p').value;
+        var msg = JSON.stringify({type:'REGISTER', payload:{username:u, password:p}});
+        _ws.send(msg);
+        lg('📤 已发送: ' + msg);
+    }
 
-        // ── 3. 发送 REGISTER ─────────────────────────────
-        function doWsRegister() {
-            const u = document.getElementById('tUser').value.trim();
-            const p = document.getElementById('tPass').value.trim();
-            if (!_ws || _ws.readyState !== WebSocket.OPEN) {
-                addLog('⚠️ WS 未连接！请先点"连接 WebSocket"', 'warn'); return;
-            }
-            const msg = JSON.stringify({ type: 'REGISTER', payload: { username: u, password: p } });
-            _ws.send(msg);
-            addLog('📤 已发送 REGISTER: ' + msg, 'info');
-        }
-
-        // ── 4. 清除日志 ──────────────────────────────────
-        function doWsClear() { log.innerHTML = ''; }
-
-        // ── 5. iframe 游戏页 ─────────────────────────────
-        function loadGame() {
-            const f = document.getElementById('gameFrame');
-            f.src = '/';
-            addLog('🎮 正在加载游戏页面到 iframe…', 'info');
-            f.onload = function() {
-                addLog('✅ 游戏页面加载完成', 'pass');
-            };
-        }
-
-        function clickLoginInGame() {
-            const f = document.getElementById('gameFrame');
-            try {
-                const fw = f.contentWindow;
-                const fd = f.contentDocument || fw.document;
-                const uEl = fd.getElementById('username');
-                const pEl = fd.getElementById('password');
-                if (!uEl || !pEl) { addLog('❌ 未找到登录输入框（页面可能未加载）', 'fail'); return; }
-                uEl.value = document.getElementById('tUser').value;
-                pEl.value = document.getElementById('tPass').value;
-                addLog('✅ 已填写用户名=' + uEl.value + '，密码已设置', 'info');
-
-                const btn = fd.getElementById('login');
-                if (!btn) { addLog('❌ 未找到登录按钮', 'fail'); return; }
-                addLog('🖱️ 正在点击登录按钮…', 'info');
-                btn.click();
-                addLog('✅ 点击完成，等待响应…', 'info');
-
-                // 1.5 秒后读结果
-                setTimeout(() => {
-                    const errEl = fd.getElementById('loginErr');
-                    const errText = errEl ? errEl.textContent : '(未找到 loginErr 元素)';
-                    const mainScreen = fd.getElementById('main-screen');
-                    const mainVisible = mainScreen && mainScreen.style.display !== 'none';
-                    addLog('📋 结果: loginErr="' + errText + '"', errText ? 'warn' : 'pass');
-                    addLog('📋 结果: main-screen 可见=' + mainVisible, mainVisible ? 'pass' : 'info');
-                    if (!errText && !mainVisible) addLog('⚠️ 无任何变化！可能按钮点击未触发', 'warn');
-                }, 1500);
-            } catch(e) {
-                addLog('❌ iframe 访问失败：' + e.message, 'fail');
-            }
-        }
-
-        function readGameErr() {
-            const f = document.getElementById('gameFrame');
-            try {
-                const fd = f.contentDocument || f.contentWindow.document;
-                const errEl = fd.getElementById('loginErr');
-                addLog('📋 loginErr 内容: "' + (errEl ? errEl.textContent : '元素不存在') + '"', 'info');
-                const wsStatusBar = fd.getElementById('ws-status-bar');
-                if (wsStatusBar) addLog('📡 WS状态条: "' + wsStatusBar.textContent + '"', 'info');
-            } catch(e) {
-                addLog('❌ ' + e.message, 'fail');
-            }
-        }
+    function doClear() {
+        document.getElementById('log').innerHTML = '';
+    }
     </script>
 </body>
 </html>
