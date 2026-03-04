@@ -183,146 +183,165 @@
     <script src="render.js"></script>
     <script src="game.js"></script>
 
-    <!-- ====================================================
-         登录 / 注册 脚本：覆盖 game.js 的 handleLogin/handleRegister
-         - game.js 的 send() 已内置排队机制（WS未就绪时入队，onopen时自动冲刷）
-         - 这里只负责：UI状态、输入校验、错误展示、回车提交
-    ==================================================== -->
     <script>
+    /* ============================================================
+       登录 / 注册 UI 控制脚本
+       原则：按钮绝对不会永久 disabled，任何情况下 10 秒后自动恢复
+    ============================================================ */
     (function () {
-      // ── 注册模式状态 ─────────────────────────────────────
       var _isRegMode = false;
+      var _loginTimer = null;  // 安全恢复计时器
+
+      // ── 工具函数 ─────────────────────────────────────────
+      function $id(id) { return document.getElementById(id); }
 
       function showLoginErr(msg) {
-        var el = document.getElementById('loginErr');
+        var el = $id('loginErr');
         if (el) { el.textContent = msg; el.style.color = '#e74c3c'; }
       }
       function clearLoginErr() {
-        var el = document.getElementById('loginErr');
+        var el = $id('loginErr');
         if (el) el.textContent = '';
       }
-      function setBtnState(id, text, disabled) {
-        var btn = document.getElementById(id);
-        if (btn) { btn.textContent = text; btn.disabled = disabled; }
+
+      // 恢复所有按钮到正常状态（任何情况都可调用）
+      function resetButtons() {
+        clearTimeout(_loginTimer);
+        var loginBtn = $id('login');
+        var regBtn   = $id('register');
+        if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = _isRegMode ? '← 返回登录' : '登录'; }
+        if (regBtn)   { regBtn.disabled = false;   regBtn.textContent   = _isRegMode ? '✅ 确认注册' : '注册'; }
       }
 
+      // 开始等待服务器响应，10 秒后强制恢复按钮
+      function startLoginWait(btnId, loadingText, errMsg) {
+        var btn = $id(btnId);
+        if (btn) { btn.disabled = true; btn.textContent = loadingText; }
+        clearTimeout(_loginTimer);
+        _loginTimer = setTimeout(function() {
+          resetButtons();
+          showLoginErr(errMsg || '服务器无响应，请稍后重试');
+        }, 10000); // 10秒硬超时
+      }
+
+      // ── 注册模式切换 ─────────────────────────────────────
       function switchToRegister() {
         _isRegMode = true;
-        var cp = document.getElementById('confirmPassword');
+        var cp = $id('confirmPassword');
         if (cp) cp.style.display = '';
-        setBtnState('register', '✅ 确认注册', false);
-        setBtnState('login', '← 返回登录', false);
+        var regBtn = $id('register');
+        if (regBtn) { regBtn.textContent = '✅ 确认注册'; regBtn.disabled = false; }
+        var loginBtn = $id('login');
+        if (loginBtn) { loginBtn.textContent = '← 返回登录'; loginBtn.disabled = false; }
         clearLoginErr();
       }
       function switchToLogin() {
         _isRegMode = false;
-        var cp = document.getElementById('confirmPassword');
+        var cp = $id('confirmPassword');
         if (cp) { cp.style.display = 'none'; cp.value = ''; }
-        setBtnState('register', '注册', false);
-        setBtnState('login', '登录', false);
+        var regBtn = $id('register');
+        if (regBtn) { regBtn.textContent = '注册'; regBtn.disabled = false; }
+        var loginBtn = $id('login');
+        if (loginBtn) { loginBtn.textContent = '登录'; loginBtn.disabled = false; }
         clearLoginErr();
       }
 
-      // ── 覆盖 game.js 的 handleLogin ──────────────────────
+      // ── 登录 ─────────────────────────────────────────────
       window.handleLogin = function () {
         if (_isRegMode) { switchToLogin(); return; }
-        var u = (document.getElementById('username').value || '').trim();
-        var p = (document.getElementById('password').value || '').trim();
+        var u = ($id('username').value || '').trim();
+        var p = ($id('password').value || '').trim();
         if (!u || !p) { showLoginErr('请填写用户名和密码'); return; }
-
         clearLoginErr();
-        setBtnState('login', '连接中…', true);
-
-        // 直接调用 game.js 的 send()，它内部已有 WS 排队机制
+        startLoginWait('login', '登录中…', '服务器无响应，请稍后重试');
         send('LOGIN', { username: u, password: p });
-
-        // WS 就绪回调：game.js 冲刷队列后会触发 window._onWsReady
-        window._onWsReady = function() {
-          // 队列已冲刷，登录请求已发出，等服务器回包即可
-          setBtnState('login', '登录中…', true);
-          window._onWsReady = null;
-        };
       };
 
-      // ── 覆盖 game.js 的 handleRegister ───────────────────
+      // ── 注册 ─────────────────────────────────────────────
       window.handleRegister = function () {
         if (!_isRegMode) { switchToRegister(); return; }
-        var u  = (document.getElementById('username').value || '').trim();
-        var p  = (document.getElementById('password').value || '').trim();
-        var cp = (document.getElementById('confirmPassword').value || '').trim();
+        var u  = ($id('username').value || '').trim();
+        var p  = ($id('password').value || '').trim();
+        var cp = ($id('confirmPassword').value || '').trim();
         if (!u || !p || !cp) { showLoginErr('请填写所有字段'); return; }
         if (u.length < 2)    { showLoginErr('用户名至少2位'); return; }
         if (p.length < 3)    { showLoginErr('密码至少3位'); return; }
         if (p !== cp)        { showLoginErr('两次密码不一致'); return; }
-
         clearLoginErr();
-        setBtnState('register', '注册中…', true);
+        startLoginWait('register', '注册中…', '服务器无响应，请稍后重试');
         send('REGISTER', { username: u, password: p });
-
-        window._onWsReady = function() {
-          setBtnState('register', '注册中…', true);
-          window._onWsReady = null;
-        };
       };
 
-      // ── 拦截服务器消息，恢复按钮状态 ─────────────────────
-      // game.js 的 handleServerMsg 处理 LOGGED_IN/ERROR，
-      // 这里额外做按钮恢复（避免按钮一直 disabled）
-      var _origHandleServerMsg = window.handleServerMsg;
-      // handleServerMsg 在 game.js 里是局部函数，无法直接拦截
-      // 改为监听 WS onmessage（在 game.js connectWS 跑完后注入）
+      // ── 游客模式 ─────────────────────────────────────────
+      window.enterGuestMode = function () {
+        clearTimeout(_loginTimer);
+        // 直接操作 DOM，不依赖 state 对象
+        $id('login-screen').style.display = 'none';
+        $id('main-screen').style.display  = 'block';
+        // 填充基础信息
+        var guestName = '游客' + Math.floor(Math.random() * 9999);
+        var els = {
+          playerName: guestName, playerLevel: '1', playerCoins: '0',
+          spaLevel: '1', spaLevelBadge: '1',
+          eggCount: '0', maxEggSlots: '2',
+          guardCount: '0', maxGuardSlots: '2'
+        };
+        Object.keys(els).forEach(function(k) {
+          var el = $id(k); if (el) el.textContent = els[k];
+        });
+        // 用 game.js 的 showInfo（如果可用）
+        if (typeof showInfo === 'function') showInfo('🎮 游客模式 — 数据不保存');
+      };
+
+      // ── 监听服务器消息，恢复按钮 ─────────────────────────
+      // 注入 WS onmessage 钩子（在 game.js 已建立 ws 之后）
       var _injected = false;
-      function injectMsgHook() {
+      function tryInject() {
         if (_injected || typeof ws === 'undefined' || !ws) return;
         _injected = true;
-        var orig = ws.onmessage;
+        var origMsg   = ws.onmessage;
+        var origClose = ws.onclose;
+
         ws.onmessage = function(ev) {
           try {
-            var msg = JSON.parse(ev.data);
-            var type = msg.type, payload = msg.payload;
-            var loginScreen = document.getElementById('login-screen');
-            var onLoginScreen = loginScreen && loginScreen.style.display !== 'none';
-            if (onLoginScreen) {
-              if (type === 'LOGGED_IN') {
-                setBtnState('login', '登录', false);
-                setBtnState('register', '注册', false);
+            var d = JSON.parse(ev.data);
+            var t = d.type, pl = d.payload || {};
+            var onLogin = $id('login-screen') && $id('login-screen').style.display !== 'none';
+            if (onLogin) {
+              if (t === 'LOGGED_IN') {
+                clearTimeout(_loginTimer);
+                resetButtons();
               }
-              if (type === 'ERROR' || type === 'AUTH_ERROR') {
-                setBtnState('login', '登录', false);
-                setBtnState('register', _isRegMode ? '✅ 确认注册' : '注册', false);
-                showLoginErr(payload.msg || payload.code || '操作失败');
+              if (t === 'ERROR' || t === 'AUTH_ERROR') {
+                clearTimeout(_loginTimer);
+                resetButtons();
+                showLoginErr(pl.msg || pl.code || '操作失败');
               }
             }
           } catch(e) {}
-          if (orig) orig.call(this, ev);
+          if (origMsg) origMsg.call(this, ev);
         };
-        // ws 断开后重置，等待重连时重新注入
-        var origClose = ws.onclose;
+
         ws.onclose = function(e) {
           _injected = false;
           if (origClose) origClose.call(this, e);
-          // 重连后重新注入
-          setTimeout(injectMsgHook, 3500);
+          setTimeout(tryInject, 3500); // 重连后重新注入
         };
       }
-      // 每 200ms 检查一次，直到注入成功
-      var _hookInterval = setInterval(function() {
-        injectMsgHook();
-        if (_injected) clearInterval(_hookInterval);
+
+      var _injectTimer = setInterval(function() {
+        tryInject();
+        if (_injected) clearInterval(_injectTimer);
       }, 200);
 
-      // ── 回车键快捷提交 ────────────────────────────────────
-      ['username', 'password', 'confirmPassword'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) {
-          el.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              if (_isRegMode) window.handleRegister();
-              else window.handleLogin();
-            }
-          });
-        }
+      // ── 回车快捷键 ────────────────────────────────────────
+      ['username','password','confirmPassword'].forEach(function(id) {
+        var el = $id(id);
+        if (el) el.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          if (_isRegMode) window.handleRegister(); else window.handleLogin();
+        });
       });
 
     })();
